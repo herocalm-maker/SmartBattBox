@@ -17,13 +17,12 @@
 #include "mod_metering.h"
 #include "mod_key.h"
 #include "mod_temp.h"
-#include "drv_buzzer.h"
-#include "drv_led.h"
-#include "drv_fan.h"
-#include "drv_relaysw.h"
 #include "bsp_wdg.h"
 #include "comm_logger.h"
 #include "Board.h"
+#include "mod_acswitch.h"
+#include "mod_hmi.h"
+#include "app_protect.h"
 
 
 /* Bench-validation defaults, not verified contact/charger/inverter timings. */
@@ -54,7 +53,6 @@ static bool s_shutting_down;
 static bool s_shutdown_complete;
 static uint32_t s_dc_release_ms = PATH_RELEASE_MS;
 static volatile SYS_STATUS_T s_state = SYS_STATUS_IDLE;
-static volatile uint32_t s_alarm;
 static bool s_fan_aux_on, s_fan_main_on;
 static bool s_ui_dirty = true;
 static bool s_battery_trip_pending;
@@ -70,42 +68,13 @@ SYS_STATUS_T state_get(void)
 }
 
 /**
- * @brief 读取当前累计的告警位图。
- * @return 告警位掩码，0表示无已记录告警。
- */
-uint32_t alarm_get(void)
-{
-    return s_alarm;
-}
-
-/**
- * @brief 判断目标通路是否包含充电。
- * @param path 待检查或提交的能量通路。
- * @return true：包含充电；false：不包含充电。
- */
-static bool path_charges(energy_path_t path)
-{
-    return path == PATH_CHARGE || path == PATH_CHARGE_BYPASS;
-}
-
-/**
- * @brief 判断目标通路是否依赖有效市电输入。
- * @param path 待检查或提交的能量通路。
- * @return true：需要市电；false：不需要市电。
- */
-static bool path_needs_ac(energy_path_t path)
-{
-    return path == PATH_BYPASS || path_charges(path);
-}
-
-/**
  * @brief 按充电或放电方向选择电池保护位。
  * @param path 待检查或提交的能量通路。
  * @return 当前方向需要检查的电池故障位掩码。
  */
 static uint32_t battery_path_fault_mask(energy_path_t path)
 {
-    return path_charges(path) ? (SYS_ALARM_BAT_OVP | SYS_ALARM_BAT_OCP)
+    return mod_acswitch_path_charges(path) ? (SYS_ALARM_BAT_OVP | SYS_ALARM_BAT_OCP)
                               : (SYS_ALARM_BAT_UVP | SYS_ALARM_BAT_OCP);
 }
 
@@ -136,8 +105,8 @@ static void display_publish(void)
     msg.MsgID = EVT_DISP_ICON;
     msg.Length = 2;
     /* Actual commands, not requests: charger may still be starting. */
-    msg.Paras.Value[0] = drv_relay_is_on(RELAY_CHG_OUT) ? 1 : 0;
-    msg.Paras.Value[1] = (drv_relay_is_on(RELAY_AC_CTRL) || drv_relay_is_on(RELAY_INV_OUT)) ? 2 : 0;
+    msg.Paras.Value[0] = mod_acswitch_relay_is_on(RELAY_CHG_OUT) ? 1 : 0;
+    msg.Paras.Value[1] = (mod_acswitch_relay_is_on(RELAY_AC_CTRL) || mod_acswitch_relay_is_on(RELAY_INV_OUT)) ? 2 : 0;
     if (Send_Msg_AppDisplayTask(&msg))
     {
         s_ui_dirty = false;
@@ -178,7 +147,7 @@ static void path_commit(energy_path_t path)
  */
 static void power_abort(void)
 {
-    drv_relay_all_off();
+    mod_acswitch_relay_all_off();
     s_charge_requested = s_output_requested = false;
     s_battery_trip_pending = false;
     path_commit(PATH_NONE); /* Also cancels every delayed close operation. */
@@ -190,12 +159,12 @@ static void power_abort(void)
  */
 static void enter_fault(uint32_t alarm)
 {
-    s_alarm |= alarm;
+    app_protect_merge(alarm);
     power_abort();
     state_set(SYS_STATUS_FAULT);
-    drv_led_on(LED_ALM);
-    drv_buzzer_short_sound(3);
-    logger_out(LOG_ERROR, "FAULT: alarm=0x%lX", (unsigned long)s_alarm);
+    mod_hmi_alarm(true);
+    mod_hmi_buzz(3);
+    logger_out(LOG_ERROR, "FAULT: alarm=0x%lX", (unsigned long)app_protect_alarm_get());
 }
 
 /**
@@ -205,7 +174,7 @@ static void enter_fault(uint32_t alarm)
  */
 static bool relay_on(relay_id_enum id)
 {
-    if (drv_relay_on(id))
+    if (mod_acswitch_relay_on(id))
     {
         s_ui_dirty = true;
         return true;
@@ -227,7 +196,7 @@ static bool path_permitted(energy_path_t path, ac_input_state_t ac)
     {
         return true;
     }
-    if (path_needs_ac(path) && ac != AC_INPUT_PRESENT)
+    if (mod_acswitch_path_needs_ac(path) && ac != AC_INPUT_PRESENT)
     {
         return false;
     }
@@ -239,7 +208,7 @@ static bool path_permitted(energy_path_t path, ac_input_state_t ac)
     {
         return false;
     }
-    if (path_charges(path) && t->chg_temp >= BOARD_PROT_CHG_TMP_FAULT_TH)
+    if (mod_acswitch_path_charges(path) && t->chg_temp >= BOARD_PROT_CHG_TMP_FAULT_TH)
     {
         return false;
     }
@@ -247,7 +216,7 @@ static bool path_permitted(energy_path_t path, ac_input_state_t ac)
     {
         return false;
     }
-    if (path_charges(path) || path == PATH_INVERT)
+    if (mod_acswitch_path_charges(path) || path == PATH_INVERT)
     {
         BATT_INFO_T bat;
         if (!battery_get_snapshot(&bat) || (bat.alarm_bits & battery_path_fault_mask(path)))
@@ -265,10 +234,10 @@ static bool path_permitted(energy_path_t path, ac_input_state_t ac)
 static void path_begin_stop(energy_path_t target)
 {
     s_target_path = target;
-    drv_relay_off(RELAY_INV_OUT);
-    drv_relay_off(RELAY_AC_CTRL);
-    drv_relay_off(RELAY_CHG_OUT);
-    drv_relay_all_off();
+    mod_acswitch_relay_off(RELAY_INV_OUT);
+    mod_acswitch_relay_off(RELAY_AC_CTRL);
+    mod_acswitch_relay_off(RELAY_CHG_OUT);
+    mod_acswitch_relay_all_off();
     /* 全部输出已撤销；后续阶段仅等待释放，再判断是否开启目标通路。 */
     s_cur_path = PATH_NONE;
     s_phase = PHASE_RELEASE_AC;
@@ -306,7 +275,7 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
     if (s_phase == PHASE_IDLE && s_cur_path == PATH_CHARGE_BYPASS && path == PATH_BYPASS)
     {
         /* Turning ACIN off must not interrupt an independently enabled ACOUT. */
-        drv_relay_off(RELAY_CHG_OUT);
+        mod_acswitch_relay_off(RELAY_CHG_OUT);
         s_target_path = PATH_BYPASS;
         s_cur_path = PATH_NONE;
         s_phase = PHASE_STOP_CHARGE;
@@ -315,7 +284,7 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
         s_ui_dirty = true;
         return true;
     }
-    if (s_phase == PHASE_IDLE && path_charges(s_cur_path) && path_charges(path))
+    if (s_phase == PHASE_IDLE && mod_acswitch_path_charges(s_cur_path) && mod_acswitch_path_charges(path))
     {
         if (path == PATH_CHARGE_BYPASS)
         {
@@ -326,7 +295,7 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
         }
         else
         {
-            drv_relay_off(RELAY_AC_CTRL);
+            mod_acswitch_relay_off(RELAY_AC_CTRL);
         }
         path_commit(path);
         return true;
@@ -340,9 +309,9 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
  */
 static void input_abort(void)
 {
-    s_alarm |= SYS_ALARM_AC_INPUT;
+    app_protect_merge(SYS_ALARM_AC_INPUT);
     power_abort();
-    drv_buzzer_short_sound(2);
+    mod_hmi_buzz(2);
     logger_out(LOG_WARN, "AC input invalid/unknown: routes off; ACOUT required to restart");
 }
 /* 关机标志阻止新的启动；此流程仅在MCU仍有供电时继续执行。 */
@@ -358,7 +327,7 @@ static void shutdown_process(void)
     uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
     if (s_phase == PHASE_RELEASE_AC && elapsed >= PATH_RELEASE_MS)
     {
-        drv_relay_all_off();
+        mod_acswitch_relay_all_off();
         s_phase = PHASE_RELEASE_DC;
         s_phase_since = HAL_GetTick();
     }
@@ -414,7 +383,7 @@ static void power_process(void)
         return;
     }
     ac_input_state_t ac = mod_metering_get_ac_input().state;
-    if (path_needs_ac(s_target_path) && ac != AC_INPUT_PRESENT)
+    if (mod_acswitch_path_needs_ac(s_target_path) && ac != AC_INPUT_PRESENT)
     {
         input_abort();
         return;
@@ -439,7 +408,7 @@ static void power_process(void)
         {
             return;
         }
-        drv_relay_off(RELAY_CHG_IN);
+        mod_acswitch_relay_off(RELAY_CHG_IN);
         path_commit(PATH_BYPASS);
         return;
     }
@@ -450,8 +419,8 @@ static void power_process(void)
             return;
         }
         s_dc_release_ms =
-            drv_relay_is_on(RELAY_INV_IN) ? PATH_CONTACTOR_RELEASE_MS : PATH_RELEASE_MS;
-        drv_relay_all_off(); /* PD4 off before PD7; no residual precharge feed. */
+            mod_acswitch_relay_is_on(RELAY_INV_IN) ? PATH_CONTACTOR_RELEASE_MS : PATH_RELEASE_MS;
+        mod_acswitch_relay_all_off(); /* PD4 off before PD7; no residual precharge feed. */
         s_phase = PHASE_RELEASE_DC;
         s_phase_since = HAL_GetTick();
         return;
@@ -488,7 +457,7 @@ static void power_process(void)
             }
             return;
         }
-        if (path_charges(s_target_path))
+        if (mod_acswitch_path_charges(s_target_path))
         {
             if (!relay_on(RELAY_CHG_IN))
             {
@@ -573,7 +542,7 @@ static void handle_onoff_key(void)
     path_begin_stop(PATH_NONE);
     logger_out(LOG_INFO, "ONOFF: 3s hold, stopping routes before power off");
     /* 保留当前关机顺序：给提示音留出时间，再撤销电源保持。 */
-    drv_buzzer_short_sound(1);
+    mod_hmi_buzz(1);
     osDelay(300);
     DEV_POWER_OFF();
     osDelay(500);
@@ -602,7 +571,7 @@ static void handle_path_key(bool charge)
         {
             s_charge_requested = keep_charge;
             s_output_requested = keep_output;
-            drv_buzzer_short_sound(1);
+            mod_hmi_buzz(1);
         }
         return;
     }
@@ -611,11 +580,11 @@ static void handle_path_key(bool charge)
         logger_out(LOG_WARN, "KEY rejected: AC input unavailable");
         if (charge)
         {
-            drv_buzzer_reject_sound();
+            mod_hmi_buzz_reject();
         }
         else
         {
-            drv_buzzer_short_sound(2);
+            mod_hmi_buzz(2);
         }
         return;
     }
@@ -629,8 +598,8 @@ static void handle_path_key(bool charge)
     {
         s_charge_requested = want_charge;
         s_output_requested = !charge;
-        s_alarm &= ~SYS_ALARM_AC_INPUT;
-        drv_buzzer_short_sound(1);
+        app_protect_unmerge(SYS_ALARM_AC_INPUT);
+        mod_hmi_buzz(1);
     }
 }
 
@@ -668,24 +637,24 @@ static void work_status_process(void)
     {
         if (!s_fan_aux_on && t->chg_temp >= BOARD_PROT_FAN_ON_TH)
         {
-            drv_fan_on(FAN_AUX);
+            mod_acswitch_set_fan(FAN_AUX, true);
             s_fan_aux_on = true;
         }
         else if (s_fan_aux_on && t->chg_temp <= BOARD_PROT_FAN_OFF_TH)
         {
-            drv_fan_off(FAN_AUX);
+            mod_acswitch_set_fan(FAN_AUX, false);
             s_fan_aux_on = false;
         }
         if (!s_fan_main_on &&
             (t->inv_temp >= BOARD_PROT_FAN_ON_TH || t->bat_temp >= BOARD_PROT_FAN_ON_TH))
         {
-            drv_fan_on(FAN_MAIN);
+            mod_acswitch_set_fan(FAN_MAIN, true);
             s_fan_main_on = true;
         }
         else if (s_fan_main_on && t->inv_temp <= BOARD_PROT_FAN_OFF_TH &&
                  t->bat_temp <= BOARD_PROT_FAN_OFF_TH)
         {
-            drv_fan_off(FAN_MAIN);
+            mod_acswitch_set_fan(FAN_MAIN, false);
             s_fan_main_on = false;
         }
     }
@@ -693,9 +662,9 @@ static void work_status_process(void)
     {
         return;
     }
-    bool charge = path_charges(s_target_path) || drv_relay_is_on(RELAY_CHG_IN);
-    bool invert = s_target_path == PATH_INVERT || drv_relay_is_on(RELAY_INV_PRO) ||
-                  drv_relay_is_on(RELAY_INV_IN);
+    bool charge = mod_acswitch_path_charges(s_target_path) || mod_acswitch_relay_is_on(RELAY_CHG_IN);
+    bool invert = s_target_path == PATH_INVERT || mod_acswitch_relay_is_on(RELAY_INV_PRO) ||
+                  mod_acswitch_relay_is_on(RELAY_INV_IN);
     if (t)
     {
         if (s_target_path != PATH_NONE && t->bat_temp >= BOARD_PROT_BAT_TMP_FAULT_TH)
@@ -745,7 +714,7 @@ static void work_status_process(void)
     {
         s_battery_trip_pending = false;
     }
-    drv_led_off(LED_ALM);
+    mod_hmi_alarm(false);
 }
 /* Powered MCU heartbeat, independent of the selected AC route. No delays. */
 /**
@@ -763,8 +732,8 @@ static void work_led_process(void)
     }
     if (s_shutting_down)
     {
-        drv_led_off(LED_SIG);
-        drv_led_off(LED_SIG2);
+        mod_hmi_led(LED_SIG, false);
+        mod_hmi_led(LED_SIG2, false);
         return;
     }
     uint32_t green_elapsed = (uint32_t)(now - green_since);
@@ -774,21 +743,21 @@ static void work_led_process(void)
     blue_since += (blue_elapsed / 5000u) * 5000u;
     if ((green_elapsed % 2000u) < 1000u)
     {
-        drv_led_on(LED_SIG);
+        mod_hmi_led(LED_SIG, true);
     }
     else
     {
-        drv_led_off(LED_SIG);
+        mod_hmi_led(LED_SIG, false);
     }
     /* 每个5秒周期的前600ms为三组100ms亮/100ms灭。 */
     uint32_t blue_phase = blue_elapsed % 5000u;
     if (blue_phase < 600u && (blue_phase % 200u) < 100u)
     {
-        drv_led_on(LED_SIG2);
+        mod_hmi_led(LED_SIG2, true);
     }
     else
     {
-        drv_led_off(LED_SIG2);
+        mod_hmi_led(LED_SIG2, false);
     }
 }
 
@@ -801,9 +770,9 @@ void AppMainTask(void *arg)
 {
     (void)arg;
     param_init(); /* Legacy AC threshold settings no longer select power routes. */
-    drv_fan_off(FAN_AUX);
-    drv_fan_off(FAN_MAIN);
-    drv_led_off(LED_ALM);
+    mod_acswitch_set_fan(FAN_AUX, false);
+    mod_acswitch_set_fan(FAN_MAIN, false);
+    mod_hmi_alarm(false);
     mod_key_init();
     mod_key_register_callback(_key_event_handler);
     logger_out(

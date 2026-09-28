@@ -10,6 +10,7 @@
 #include "main.h"
 #include "app_ble.h"
 #include "app_main_task.h"
+#include "app_protect.h"
 #include "drv_pb03f.h"
 #include "mod_battery.h"
 #include "mod_metering.h"
@@ -58,7 +59,7 @@ void app_ble_report_status(void)
                         (int)m->vout_p_w);
     }
     len += snprintf(s_json_buf + len, sizeof(s_json_buf) - len, ",\"state\":%d,\"alm\":%lu}",
-                    (int)state_get(), (unsigned long)alarm_get());
+                    (int)state_get(), (unsigned long)app_protect_alarm_get());
 
     drv_pb03f_send((const uint8_t *)s_json_buf, len);
 }

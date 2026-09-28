@@ -60,7 +60,7 @@
 //主任务
 static osThreadId_t s_task_main;
 QueueHandle_t xMainQueueHandle = {0};
-#define MAIN_MSG_QUEUE_MAX_NUM       10
+#define MAIN_MSG_QUEUE_MAX_NUM       6
 static uint8_t ucMainMsgQueueBuff[MAIN_MSG_QUEUE_MAX_NUM * sizeof(ucMESSAGE_t)] = {0};
 static StaticQueue_t xMainMsgQueue;
 

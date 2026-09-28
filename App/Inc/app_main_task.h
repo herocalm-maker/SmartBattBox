@@ -7,7 +7,7 @@
  *   - AC 通路管理 (继电器安全切换)
  *   - 热管理 (风扇 + 温度报警)
  *   - Flash 参数 (project_param.h) 管理
- *   - 对外提供: state_get(), alarm_get()
+ *   - 对外提供: state_get(); 告警位图读取见 app_protect.h (app_protect_alarm_get)
  */
 #ifndef __APP_MAIN_TASK_H__
 #define __APP_MAIN_TASK_H__
@@ -58,11 +58,6 @@ extern void AppMainTask(void *arg);
  * @return 当前系统状态枚举值。
  */
 extern SYS_STATUS_T state_get(void);
-/**
- * @brief 读取当前累计的告警位图。
- * @return 告警位掩码，0表示无已记录告警。
- */
-extern uint32_t alarm_get(void);
 
 #ifdef __cplusplus
 }
