@@ -73,7 +73,7 @@ bool mod_temp_init(void)
     s_temp.max_temp = 0;
     s_temp.max_src  = TEMP_SRC_CHG;
 
-    /* 启动首次 ADC DMA 传输 (DMA_NORMAL 模式, 需手动启动) */
+    /* 兼容保留: DMA_CIRCULAR 连续采集已由 bsp_adc_init 启动 (本调用幂等) */
     bsp_adc_dma_enable(BOARD_ADC_CHANNEL_CNT);
     return true;
 }
@@ -85,7 +85,7 @@ void mod_temp_update(void)
     s_temp.inv_temp = _raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_INV_TMP));
     _update_max();
 
-    /* 重启下一轮 DMA 传输 (本轮读旧值, 下轮读新值) */
+    /* 兼容保留: CIRCULAR 模式无需重启 (本调用幂等, 保留防回归) */
     bsp_adc_dma_enable(BOARD_ADC_CHANNEL_CNT);
 }
 

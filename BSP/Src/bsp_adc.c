@@ -3,14 +3,14 @@
  * @brief   ADC 通用外设接口 (BSP 层) — 多通道 ADC+DMA 实现
  *
  * 实现风格参考 ALIENTEK 探索者F407 HAL例程 (实验19-3 多通道ADC采集 DMA, adc.c):
- *   - 多通道硬件扫描 + DMA NORMAL 模式搬运
- *   - 传输完成后通过中断标志通知, 需手动调用 bsp_adc_dma_enable() 重启
+ *   - 多通道硬件扫描 + DMA CIRCULAR 环形搬运 (连续转换持续刷新)
+ *   - bsp_adc_init 一次性启动连续采集, 无需手动重启
  *   - HAL_ADC_MspInit/MspDeInit 由 HAL 内部调用, 配置 GPIO/DMA/中断
  *
  * 数据流:
- *   调用 bsp_adc_dma_enable(N) 启动 N 次 DMA 传输 →
- *   DMA2_Stream0 将 ADC1 转换结果搬运到 s_adc1_dma_buf[] →
- *   上层读取 bsp_adc_get_raw() 获取缓冲区数据
+ *   bsp_adc_init() 调 HAL_ADC_Start_DMA 启动连续转换 →
+ *   DMA2_Stream0 以 CIRCULAR 模式持续将 ADC1 转换结果搬运到 s_adc1_dma_buf[] →
+ *   上层任意时刻读取 bsp_adc_get_raw()/bsp_adc_get_raw_average() 即得最新值
  *
  * 通道序列 (Board.h "7. ADC 通道映射"):
  *   Rank 1: PC1  ADC1_IN11 充电模拟备份
@@ -32,10 +32,10 @@ ADC_HandleTypeDef g_adc_nch_dma_handle;     /* 与DMA关联的ADC句柄 */
 DMA_HandleTypeDef g_dma_nch_adc_handle;     /* 与ADC关联的DMA句柄 */
 
 /* =====================================================================
- *  ADC1 DMA 缓冲区 (5 通道线性排布)
+ *  ADC1 DMA 环形缓冲区 (5 通道 × 32 帧交织)
  *
- *  内存布局: 索引 = 通道rank (0-4)
- *  DMA 每完成一次传输, 每个通道各完成一次采样
+ *  内存布局: 索引 = 帧号 * BOARD_ADC_CHANNEL_CNT + 通道rank
+ *  DMA CIRCULAR 持续刷新, 每完成一轮 5 通道序列即覆盖下一帧
  *
  *  通道顺序对应 Board.h "7. ADC 通道映射" Rank:
  *    [0] PC1  ADC1_IN11 充电模拟备份
@@ -44,7 +44,8 @@ DMA_HandleTypeDef g_dma_nch_adc_handle;     /* 与ADC关联的DMA句柄 */
  *    [3] PA5  ADC1_IN5  电池温度 NTC
  *    [4] PA6  ADC1_IN6  逆变器温度
  * ===================================================================== */
-#define BSP_ADC_DMA_BUF_LEN     (BOARD_ADC_CHANNEL_CNT)   /* 缓冲区长度 = 通道数 */
+#define BSP_ADC_AVG_SAMPLES     32u                        /* 多样本平均窗口 */
+#define BSP_ADC_DMA_BUF_LEN     (BOARD_ADC_CHANNEL_CNT * BSP_ADC_AVG_SAMPLES)
 
 static volatile uint16_t s_adc1_dma_buf[BSP_ADC_DMA_BUF_LEN];
 
@@ -92,7 +93,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef *adcHandle)
         g_dma_nch_adc_handle.Init.MemInc = DMA_MINC_ENABLE;
         g_dma_nch_adc_handle.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
         g_dma_nch_adc_handle.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-        g_dma_nch_adc_handle.Init.Mode = DMA_NORMAL;              /* NORMAL模式, 需手动重启 */
+        g_dma_nch_adc_handle.Init.Mode = DMA_CIRCULAR;             /* 环形: 连续转换持续刷新缓冲区 */
         g_dma_nch_adc_handle.Init.Priority = DMA_PRIORITY_MEDIUM; /* 参考正点原子例程: 中等优先级 */
         g_dma_nch_adc_handle.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
         if (HAL_DMA_Init(&g_dma_nch_adc_handle) != HAL_OK) {
@@ -127,10 +128,10 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef *adcHandle)
 
 /*********************************************************************
  * @fn      bsp_adc_init
- * @brief   初始化 ADC1 外设 (配置通道 + 准备 DMA 传输)
+ * @brief   初始化 ADC1 外设 (配置通道 + 启动连续 DMA 采集)
  * @return  bool true=成功 false=失败
  * @note    使用本文件持有的 g_adc_nch_dma_handle, Instance 固定 ADC1 (单板单 ADC).
- *          初始化后需调用 bsp_adc_dma_enable() 启动首次 DMA 传输.
+ *          DMA_CIRCULAR + 连续模式下, 本函数一次性启动采集, 后续无需重启.
 ********************************************************************/
 bool bsp_adc_init(void)
 {
@@ -173,13 +174,10 @@ bool bsp_adc_init(void)
         }
     }
 
-    /* 配置 DMA 传输参数 (不启动, 等待 bsp_adc_dma_enable() 调用) */
-    if (HAL_DMA_Start(&g_dma_nch_adc_handle, (uint32_t)&ADC1->DR, (uint32_t)s_adc1_dma_buf, BSP_ADC_DMA_BUF_LEN) != HAL_OK) {
+    /* 启动连续转换 + DMA 环形搬运 (CIRCULAR 自持续, 无需手动重启) */
+    if (HAL_ADC_Start_DMA(&g_adc_nch_dma_handle, (uint32_t *)s_adc1_dma_buf, BSP_ADC_DMA_BUF_LEN) != HAL_OK) {
         return false;
     }
-
-    /* 使能 DMA 传输完成中断 */
-    __HAL_DMA_ENABLE_IT(&g_dma_nch_adc_handle, DMA_IT_TC);
 
     return true;
 }
@@ -198,29 +196,23 @@ bool bsp_adc_deinit(void)
 
 /*********************************************************************
  * @fn      bsp_adc_dma_enable
- * @brief   使能一次 ADC DMA 传输
- * @param   ndtr: DMA 传输的次数 (通常为 BOARD_ADC_CHANNEL_CNT)
+ * @brief   使能 ADC DMA 传输 (兼容保留)
+ * @param   ndtr: 未使用
  * @return  无
- * @note    每次传输完成后需手动调用此函数重启下一次传输
+ * @note    DMA_CIRCULAR + 连续模式下, DMA 由 bsp_adc_init 启动并持续刷新,
+ *          无需手动重启; 保留本接口为幂等兼容调用.
 ********************************************************************/
 void bsp_adc_dma_enable(uint16_t ndtr)
 {
-    __HAL_ADC_DISABLE(&g_adc_nch_dma_handle);       /* 先关闭 ADC */
-
-    __HAL_DMA_DISABLE(&g_dma_nch_adc_handle);       /* 关闭 DMA 传输 */
-    g_dma_nch_adc_handle.Instance->NDTR = ndtr;     /* 重设 DMA 传输数据量 */
-    __HAL_DMA_ENABLE(&g_dma_nch_adc_handle);        /* 开启 DMA 传输 */
-
-    __HAL_ADC_ENABLE(&g_adc_nch_dma_handle);        /* 重新启动 ADC */
-    ADC1->CR2 |= 1 << 30;                           /* 启动规则转换通道 */
+    (void)ndtr;
 }
 
 /*********************************************************************
  * @fn      bsp_adc_get_raw
- * @brief   读取指定通道原始值 (DMA 缓冲区直接读取)
+ * @brief   读取指定通道原始值 (DMA 环形缓冲区当前帧)
  * @param   ch  通道 (BSP_ADC_CH_*)
  * @return  uint16_t 采样值 (12bit, 0..4095); 失败返回 0
- * @note    读取后应调用 bsp_adc_dma_enable() 重启下一次传输.
+ * @note    多样本平均请使用 bsp_adc_get_raw_average().
 ********************************************************************/
 uint16_t bsp_adc_get_raw(bsp_adc_ch_enum ch)
 {
@@ -229,7 +221,7 @@ uint16_t bsp_adc_get_raw(bsp_adc_ch_enum ch)
     }
     uint8_t rank = (uint8_t)ch;
 
-    /* 直接从 DMA 缓冲区读取 (传输已完成) */
+    /* CIRCULAR 环形缓冲区: 返回当前窗口第 0 帧该通道样本 */
     return s_adc1_dma_buf[rank];
 }
 
@@ -238,14 +230,19 @@ uint16_t bsp_adc_get_raw(bsp_adc_ch_enum ch)
  * @brief   读取指定通道原始值的多样本平均
  * @param   ch  通道 (BSP_ADC_CH_*)
  * @return  uint16_t 平均采样值 (12bit, 0..4095); 失败返回 0
- * @note    当前 DMA_NORMAL 模式下, 每次传输只产生一个样本,
- *          此函数暂时直接返回单次采样值; 若需多样本平均,
- *          需外部循环调用 bsp_adc_dma_enable() 并累加.
+ * @note    对环形缓冲中当前窗口 BSP_ADC_AVG_SAMPLES 帧该通道样本求平均,
+ *          与头文件宣称的 "5 通道×32 块交织 + 整窗平均" 一致.
 ********************************************************************/
 uint16_t bsp_adc_get_raw_average(bsp_adc_ch_enum ch)
 {
-    /* DMA_NORMAL 模式下, 每次传输只产生一个样本, 直接返回 */
-    return bsp_adc_get_raw(ch);
+    if ((uint8_t)ch >= BOARD_ADC_CHANNEL_CNT) {
+        return 0;
+    }
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < BSP_ADC_AVG_SAMPLES; i++) {
+        sum += s_adc1_dma_buf[i * BOARD_ADC_CHANNEL_CNT + (uint8_t)ch];
+    }
+    return (uint16_t)(sum / BSP_ADC_AVG_SAMPLES);
 }
 
 /*********************************************************************
@@ -277,9 +274,6 @@ uint16_t bsp_adc_get_mv_average(bsp_adc_ch_enum ch)
  * ===================================================================== */
 void DMA2_Stream0_IRQHandler(void)
 {
-    /* 判断 DMA2_Stream0 传输完成标志 (LISR bit5) */
-    if (DMA2->LISR & (1 << 5))
-    {
-        DMA2->LIFCR |= 1 << 5;      /* 清除传输完成标志 */
-    }
+    /* 标准 HAL DMA 中断处理: 清除 TC/HT/FE 标志并调用注册回调 */
+    HAL_DMA_IRQHandler(&g_dma_nch_adc_handle);
 }
