@@ -11,7 +11,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cmsis_os2.h"
-#include "main.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>

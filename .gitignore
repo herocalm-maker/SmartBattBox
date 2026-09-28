@@ -13,7 +13,7 @@ Release/
 *.user
 
 # ---- IDE / workspace ----
-.settings/
+# .settings/ 保留（CubeIDE 工程配置，应入库）
 .metadata/
 *.launch
 

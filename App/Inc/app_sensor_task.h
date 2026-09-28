@@ -31,13 +31,6 @@ extern "C"
  */
 extern void SensorTask(void *arg);
 
-/* EXTI 中断回调 (从 stm32f4xx_it.c 调用) */
-/**
- * @brief 预留外部中断分发入口，当前不处理引脚事件。
- * @param GPIO_Pin 触发外部中断的引脚掩码。
- */
-extern void app_exti_callback(uint16_t GPIO_Pin);
-
 #ifdef __cplusplus
 }
 #endif

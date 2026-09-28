@@ -25,8 +25,6 @@
 #include "Board.h"
 /* USER CODE END Includes */
 
-extern void app_exti_callback(uint16_t GPIO_Pin);
-
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN TD */
 
@@ -222,7 +220,8 @@ void EXTI9_5_IRQHandler(void)
   */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    app_exti_callback(GPIO_Pin);
+    /* 预留：CHG_WKUP / GAUGE_ALRT 事件分发入口（当前无处理逻辑） */
+    (void)GPIO_Pin;
 }
 
 /* USARTx_IRQHandler / DMAx_StreamY_IRQHandler 已迁移到 bsp_uart.c:

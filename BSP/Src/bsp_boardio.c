@@ -23,6 +23,7 @@ void bsp_boardio_init(void)
     drv_relay_init();    /* 含 all_off 安全时序 */
     drv_fan_init();
     drv_led_init();
+    drv_buzzer_init();
 
     logger_print(LOG_INFO, "bsp_boardio: all drivers init");
 }

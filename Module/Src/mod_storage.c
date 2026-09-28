@@ -42,4 +42,3 @@ int mod_storage_battery_erase(void *c,unsigned sector) {
  }
  osMutexRelease(storage_mutex);return ok?0:-1;
 }
-bool mod_storage_log_append(const uint8_t *b,uint16_t n) {(void)b;(void)n;return false;}

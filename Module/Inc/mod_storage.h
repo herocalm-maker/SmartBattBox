@@ -42,8 +42,6 @@ int mod_storage_battery_erase(void *,unsigned);
 /* 初始化 Flash 存储模块, 创建互斥锁并初始化 W25Q128 */
 extern void mod_storage_init(void);
 
-/* storage log append */
-extern bool mod_storage_log_append  (const uint8_t *buf, uint16_t len);
 
 #ifdef __cplusplus
 }

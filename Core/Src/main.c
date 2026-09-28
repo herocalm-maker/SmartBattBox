@@ -26,7 +26,6 @@
 #include "bsp_adc.h"
 #include "bsp_tim.h"
 #include "bsp_spi.h"
-#include "bsp_i2c.h"
 #include "bsp_io.h"
 #include "bsp_wdg.h"
 #include "bsp_boardio.h"
@@ -169,8 +168,6 @@ int main(void)
   log_print("clk: %lu Hz", (unsigned long)SystemCoreClock);
   //看门狗+守护初始化
   bsp_wdg_monitor_init();
-  //蜂鸣器初始化
-  drv_buzzer_init();
   //定时器初始化
   timer_init();
   //ADC初始化

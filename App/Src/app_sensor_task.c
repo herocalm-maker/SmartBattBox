@@ -131,15 +131,4 @@ void SensorTask(void *argument)
     }
 }
 
-/*====================================================================
- * EXTI 中断回调 (从 stm32f4xx_it.c 调用)
- *====================================================================*/
-/**
- * @brief 预留外部中断分发入口，当前不处理引脚事件。
- * @param GPIO_Pin 触发外部中断的引脚掩码。
- */
-void app_exti_callback(uint16_t GPIO_Pin)
-{
-    /* TODO: 处理 CHG_WKUP (AC 事件) 和 GAUGE_ALRT (电量计告警) */
-    (void)GPIO_Pin;
-}
+
