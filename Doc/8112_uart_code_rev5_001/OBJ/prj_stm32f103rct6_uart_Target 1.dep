@@ -1,0 +1,137 @@
+Dependencies for Project 'prj_stm32f103rct6_uart', Target 'Target 1': (DO NOT MODIFY !)
+CompilerVersion: 5060750::V5.06 update 6 (build 750)::.\ARMCC
+F (..\SYSTEM\sys\sys.c)(0x69C0AA4A)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\sys.o --omf_browse ..\obj\sys.crf --depend ..\obj\sys.d)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+F (.\startup_stm32f10x_hd.s)(0x5CADB8DC)(--cpu Cortex-M3 -g --apcs=interwork -IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include--pd "__UVISION_VERSION SETA 531" --pd "STM32F10X_HD SETA 1"--list ..\obj\startup_stm32f10x_hd.lst --xref -o ..\obj\startup_stm32f10x_hd.o --depend ..\obj\startup_stm32f10x_hd.d)
+F (.\test.c)(0x6A22643F)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\test.o --omf_browse ..\obj\test.crf --depend ..\obj\test.d)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\usart\usart.h)(0x69C0AA9F)
+I (C:\Keil_v5\ARM\ARMCC\include\stdio.h)(0x5EC775FC)
+I (..\SYSTEM\delay\delay.h)(0x6A195C28)
+I (..\HARDWARE\LED\led.h)(0x69C0AB71)
+I (..\HARDWARE\BEEP\beep.h)(0x69C0AB70)
+I (..\HARDWARE\KEY\key.h)(0x69C0AB71)
+I (..\HARDWARE\TIMER\timer.h)(0x69C0AA1A)
+I (test.h)(0x69C0AE57)
+I (..\HARDWARE\HLW8112\hlw8112.h)(0x6A22487E)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_hw.h)(0x6A222063)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\HARDWARE\HLW8112\hlw8112_regs.h)(0x6A1FF4EA)
+I (..\HARDWARE\HLW8112\hlw8112_calib.h)(0x6A2220FE)
+I (..\HARDWARE\HLW8112\hlw8112_calc.h)(0x6A2261C1)
+I (..\HARDWARE\HLW8112\hlw8112_protocol.h)(0x6A224858)
+I (..\HARDWARE\HLW8112\hlw8112_reader.h)(0x6A224824)
+I (..\HARDWARE\HLW8112\hlw8112_log.h)(0x6A222084)
+F (..\SYSTEM\delay\delay.c)(0x6A195C0C)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\delay.o --omf_browse ..\obj\delay.crf --depend ..\obj\delay.d)
+I (..\SYSTEM\delay\delay.h)(0x6A195C28)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+F (..\SYSTEM\usart\usart.c)(0x6A1913F5)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\usart.o --omf_browse ..\obj\usart.crf --depend ..\obj\usart.d)
+I (..\SYSTEM\usart\usart.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdio.h)(0x5EC775FC)
+F (..\HARDWARE\LED\led.c)(0x6A16A366)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\led.o --omf_browse ..\obj\led.crf --depend ..\obj\led.d)
+I (..\HARDWARE\LED\led.h)(0x69C0AB71)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+F (..\HARDWARE\KEY\key.c)(0x6A16A36A)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\key.o --omf_browse ..\obj\key.crf --depend ..\obj\key.d)
+I (..\HARDWARE\KEY\key.h)(0x69C0AB71)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\delay\delay.h)(0x6A195C28)
+F (..\HARDWARE\BEEP\beep.c)(0x6A16A36F)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\beep.o --omf_browse ..\obj\beep.crf --depend ..\obj\beep.d)
+I (..\HARDWARE\BEEP\beep.h)(0x69C0AB70)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+F (..\HARDWARE\TIMER\timer.c)(0x6A224886)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\timer.o --omf_browse ..\obj\timer.crf --depend ..\obj\timer.d)
+I (..\HARDWARE\TIMER\timer.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+I (..\HARDWARE\LED\led.h)(0x69C0AB71)
+I (..\HARDWARE\HLW8112\hlw8112_reader.h)(0x6A224824)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_regs.h)(0x6A1FF4EA)
+F (..\HARDWARE\HLW8112\hlw8112_log.c)(0x6A2220A3)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\hlw8112_log_1.o --omf_browse ..\obj\hlw8112_log_1.crf --depend ..\obj\hlw8112_log_1.d)
+I (..\HARDWARE\HLW8112\hlw8112.h)(0x6A22487E)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_hw.h)(0x6A222063)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\HARDWARE\HLW8112\hlw8112_regs.h)(0x6A1FF4EA)
+I (..\HARDWARE\HLW8112\hlw8112_calib.h)(0x6A2220FE)
+I (..\HARDWARE\HLW8112\hlw8112_calc.h)(0x6A2261C1)
+I (..\HARDWARE\HLW8112\hlw8112_protocol.h)(0x6A224858)
+I (..\HARDWARE\HLW8112\hlw8112_reader.h)(0x6A224824)
+I (..\HARDWARE\HLW8112\hlw8112_log.h)(0x6A222084)
+F (..\HARDWARE\HLW8112\hlw8112_hw.c)(0x6A2261C3)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\hlw8112_hw.o --omf_browse ..\obj\hlw8112_hw.crf --depend ..\obj\hlw8112_hw.d)
+I (..\HARDWARE\HLW8112\hlw8112_hw.h)(0x6A222063)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_protocol.h)(0x6A224858)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\SYSTEM\sys\sys.h)(0x69C0AA9F)
+I (..\SYSTEM\sys\stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\core_cm3.h)(0x69C0AA1A)
+I (..\SYSTEM\sys\system_stm32f10x.h)(0x69C0AA1A)
+I (..\SYSTEM\delay\delay.h)(0x6A195C28)
+I (C:\Keil_v5\ARM\ARMCC\include\stdarg.h)(0x5EC775FC)
+I (C:\Keil_v5\ARM\ARMCC\include\stdio.h)(0x5EC775FC)
+F (..\HARDWARE\HLW8112\hlw8112_reader.c)(0x6A224845)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\hlw8112_reader.o --omf_browse ..\obj\hlw8112_reader.crf --depend ..\obj\hlw8112_reader.d)
+I (..\HARDWARE\HLW8112\hlw8112_reader.h)(0x6A224824)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_regs.h)(0x6A1FF4EA)
+I (..\HARDWARE\HLW8112\hlw8112_protocol.h)(0x6A224858)
+I (..\HARDWARE\HLW8112\hlw8112_calc.h)(0x6A2261C1)
+I (..\HARDWARE\HLW8112\hlw8112_log.h)(0x6A222084)
+I (..\HARDWARE\HLW8112\hlw8112_hw.h)(0x6A222063)
+F (..\HARDWARE\HLW8112\hlw8112_protocol.c)(0x6A224865)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\hlw8112_protocol.o --omf_browse ..\obj\hlw8112_protocol.crf --depend ..\obj\hlw8112_protocol.d)
+I (..\HARDWARE\HLW8112\hlw8112_protocol.h)(0x6A224858)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_regs.h)(0x6A1FF4EA)
+I (..\HARDWARE\HLW8112\hlw8112_hw.h)(0x6A222063)
+F (..\HARDWARE\HLW8112\hlw8112_calc.c)(0x6A22265B)(-c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\HARDWARE\LED -I ..\HARDWARE\BEEP -I ..\HARDWARE\KEY -I ..\HARDWARE\TIMER -I ..\USER -I ..\HARDWARE\HLW8112 -I ..\HARDWARE\HLW8112\port-IC:\Users\hlw-t\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include-IC:\Keil_v5\ARM\CMSIS\Include-D__UVISION_VERSION="531" -DSTM32F10X_HD -DSTM32F10X_HD-o ..\obj\hlw8112_calc.o --omf_browse ..\obj\hlw8112_calc.crf --depend ..\obj\hlw8112_calc.d)
+I (..\HARDWARE\HLW8112\hlw8112_calc.h)(0x6A2261C1)
+I (..\HARDWARE\HLW8112\hlw8112_data.h)(0x6A2261BF)
+I (..\HARDWARE\HLW8112\hlw8112_port.h)(0x6A1FE492)
+I (C:\Keil_v5\ARM\ARMCC\include\stdint.h)(0x5EC775FC)
+I (..\HARDWARE\HLW8112\hlw8112_config.h)(0x6A2220BA)
+I (..\HARDWARE\HLW8112\hlw8112_calib.h)(0x6A2220FE)

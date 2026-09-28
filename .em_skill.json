@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "project_type": "embedded",
+  "ide": "STM32CubeIDE",
+  "mcu": "STM32F407VG",
+  "tools": {
+    "python": "C:/ProgramData/miniconda3/python.exe",
+    "pyserial": "3.5"
+  },
+  "tools_missing": [
+    "openocd",
+    "uv4",
+    "jlink_segger"
+  ],
+  "burner": {
+    "preferred": "jlink",
+    "status": "未安装 SEGGER J-Link 软件",
+    "hint": "请从 https://www.segger.com/downloads/jlink/ 下载安装 J-Link Software and Documentation Pack",
+    "expected_paths": [
+      "C:/Program Files/SEGGER/JLink/JLink.exe",
+      "C:/Program Files (x86)/SEGGER/JLink/JLink.exe"
+    ]
+  },
+  "build": {
+    "preferred": "STM32CubeIDE",
+    "status": "用户在 CubeIDE 中手动编译",
+    "hint": "build-keil 工具不适用本项目, verify 流程的 build 步骤将跳过"
+  },
+  "notes": [
+    "本项目使用 STM32CubeIDE (.cproject/.project), 非 Keil MDK 工程",
+    "build-keil 工具不适用, 改为 CubeIDE 手动编译",
+    "烧录使用 SEGGER J-Link (需用户安装 J-Link 软件)",
+    "OpenOCD 未安装 (如改用 OpenOCD 驱动 ST-Link, 需另外安装)"
+  ]
+}

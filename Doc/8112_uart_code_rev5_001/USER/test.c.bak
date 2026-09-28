@@ -1,0 +1,72 @@
+#include "sys.h"
+#include "usart.h"		
+#include "delay.h"	 
+#include "led.h"
+#include "beep.h"
+#include "key.h"
+#include "timer.h"
+#include "HLW8110.h"
+#include "test.h"
+
+extern unsigned char B_ReadData_HLW8110;
+
+
+int main(void)
+{	
+	delay_init(72);
+	Stm32_Clock_Init(9);				//系统时钟设置
+//	uart_init(72,115200);  		//72M,115200bps,串口1设置，与PC通讯
+	uart_init(36,115200); 			//36M,115200bps,串口1设置，与PC通讯
+	delay_init(72);	  					//延时初始化
+	
+	LED_Init();		  	//初始化与LED连接的硬件接口
+//	TIM3_Int_Init(4999,7199);//10Khz的计数频率，计数5K次为500ms,定时为500ms 
+//	TIM3_Int_Init(999,7199);//10Khz的计数频率，计数1K次为100ms,定时为100ms  	
+	TIM3_Int_Init(300,7199);//10Khz的计数频率，计数5K次为30ms,定时为30ms  
+//	delay_init(200);	  			//延时初始化
+	delay_ms(200);						//初始化8110、8112前延时1000ms，此时间可修改
+	
+	
+#if HLW8110	
+	uart2_init(18,9600);			//36M（最大36M）,PCLK1分频后18M，9600，偶校验，串口2设置，与8110通讯
+	Init_HLW8110();
+	B_ReadData_HLW8110 = 0;
+#endif
+	
+#if HLW8112	
+	Init_HLW8112();
+	B_ReadData_HLW8110 = 0;
+#endif	
+
+	
+
+	while(1)
+	{
+		
+		//每3HZ读取一次HLW8110芯片内的寄存器数据,每100ms读取一次数据
+		//读取数据的频率视
+		#if HLW8110
+			if ( B_ReadData_HLW8110 == 1 )
+			{
+				B_ReadData_HLW8110 = 0;
+				Calculate_HLW8110_MeterData();
+			}
+		#endif
+		
+		#if HLW8112
+			if ( B_ReadData_HLW8110 == 1 )
+			{
+				B_ReadData_HLW8110 = 0;
+				HLW8112_Measure();
+			}
+		#endif
+		
+	}
+	 
+} 
+
+
+
+
+
+

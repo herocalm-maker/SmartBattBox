@@ -1,0 +1,277 @@
+#include "app_battery.h"
+#include <string.h>
+/* Freestanding test support: the actual driver runs as ARM machine code. */
+void *memset(void *p,int c,size_t n) { unsigned char *q=p; while(n--) *q++=(unsigned char)c; return p; }
+void *memcpy(void *p,const void *s,size_t n) { unsigned char *q=p; const unsigned char *r=s; while(n--) *q++=*r++; return p; }
+int memcmp(const void *p,const void *s,size_t n) { const unsigned char *q=p,*r=s; while(n--) { if(*q!=*r) return *q-*r; q++; r++; } return 0; }
+volatile unsigned test_checks,test_failures,test_first_failure;
+#define CHECK(x) do { test_checks++; if(!(x)) { test_failures++; if(!test_first_failure) test_first_failure=__LINE__; } } while(0)
+typedef struct {
+    uint16_t reg[256]; uint32_t tick; unsigned reads,writes;
+    int fail_read,fail_write,fail_count; bool dnr_stuck,refresh_stuck,load_stuck;
+    bool corrupt_table,lock_bad,reset_mid_sample;
+} mock_t;
+static mock_t hw;
+static max17263_t dev;
+static max17263_config_t cfg;
+static max17263_bus_t bus;
+static max17263_model_t model;
+static int read_bus(void *ctx,uint8_t addr,uint8_t r,uint8_t *b,size_t n) {
+    mock_t *m=ctx; uint16_t v=m->reg[r]; m->reads++;
+    CHECK(addr==0x36&&n==2);
+    if(r==m->fail_read&&m->fail_count) { if(m->fail_count>0) m->fail_count--; return -1; }
+    if(r==M_FSTAT&&m->dnr_stuck) v=1;
+    if(r>=0x80&&r<=0x9F) {
+        if(!m->lock_bad&&!(m->reg[M_LOCK1]==0x59&&m->reg[M_LOCK2]==0xC4)) v=0;
+        else if(m->corrupt_table) v^=1;
+    }
+    if(r==M_CURRENT&&m->reset_mid_sample) m->reg[M_STATUS]|=M_POR;
+    b[0]=(uint8_t)v; b[1]=(uint8_t)(v>>8); return 0;
+}
+static int write_bus(void *ctx,uint8_t addr,uint8_t r,const uint8_t *b,size_t n) {
+    mock_t *m=ctx; uint16_t v=(uint16_t)(b[0]|((uint16_t)b[1]<<8)); m->writes++;
+    CHECK(addr==0x36&&n==2);
+    if(r==m->fail_write&&m->fail_count) { if(m->fail_count>0) m->fail_count--; return -1; }
+    if(r==M_STATUS) m->reg[r]&=v;
+    else m->reg[r]=v;
+    if(r==M_MODELCFG&&!m->refresh_stuck) m->reg[r]&=0x7FFF;
+    if(r==M_CONFIG2&&!m->load_stuck) m->reg[r]&=(uint16_t)~0x20;
+    return 0;
+}
+static void delay_bus(void *ctx,uint32_t t) { ((mock_t *)ctx)->tick+=t; }
+static uint32_t time_bus(void *ctx) { return ((mock_t *)ctx)->tick; }
+static void fresh(void) {
+    memset(&hw,0,sizeof(hw)); memset(&cfg,0,sizeof(cfg));
+    hw.fail_read=hw.fail_write=-1; hw.reg[M_STATUS]=M_POR;
+    hw.reg[M_HIBCFG]=0x870C; hw.reg[M_MODELCFG]=0x0008; hw.reg[M_VFSOC]=12800;
+    cfg.profile_id=1; cfg.battery_id=1; cfg.rsense_uohm=2000; cfg.design_mah=20000;
+    cfg.ichgterm_ma=1000; cfg.empty_mv=2800; cfg.recovery_mv=3200; cfg.series_cells=8;
+    cfg.external_ntc=true; cfg.allow_uncharacterized=true; cfg.poll_timeout_ms=100;
+    bus=(max17263_bus_t){&hw,read_bus,write_bus,delay_bus,time_bus};
+    CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+}
+static void measurements(void) {
+    hw.reg[M_VCELL]=40960; hw.reg[M_AVGVCELL]=40960; /* 3.2V */
+    hw.reg[M_CURRENT]=(uint16_t)(65536-1280); hw.reg[M_AVGCURRENT]=hw.reg[M_CURRENT];
+    hw.reg[M_TEMP]=0xFB00; hw.reg[M_REPSOC]=12800; /* -5C, 50% */
+    hw.reg[M_REPCAP]=4000; hw.reg[M_FULLCAPREP]=7600; hw.reg[M_FULLCAPNOM]=7800;
+    hw.reg[M_CYCLES]=1234; hw.reg[M_TTE]=640; hw.reg[M_TTF]=640;
+}
+static void basic(void) {
+    max17263_sample_t s; unsigned n;
+    fresh(); CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    CHECK(hw.reg[M_DESIGNCAP]==8000&&hw.reg[M_ICHGTERM]==1280);
+    CHECK(hw.reg[M_VEMPTY]==0x8C50&&hw.reg[M_MODELCFG]==0x0068);
+    CHECK(hw.reg[M_HIBCFG]==0x870C&&!(hw.reg[M_STATUS]&M_POR));
+    CHECK((hw.reg[M_CONFIG]&0x8210)==0x8210);
+    n=hw.writes; CHECK(drv_max17263_initialize(&dev,NULL)==M_OK&&hw.writes==n);
+    measurements(); CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.valid);
+    CHECK(s.pack_mv==25600&&s.current_ma==-1000&&s.temp_c==-5);
+    CHECK(s.soc_pct==50&&s.remaining_mah==10000&&s.full_mah==19000);
+    CHECK(s.soh_capacity_pct==95&&s.cycles>12.339f&&s.cycles<12.341f);
+    CHECK(s.tte_valid&&s.tte_s==3600&&!s.ttf_valid&&s.ttf_s==-1);
+    hw.reg[M_CURRENT]=1280; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&!s.tte_valid&&s.ttf_valid);
+    hw.reg[M_CURRENT]=0xFFFF; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.current_ma<0);
+    hw.reg[M_TTE]=0xFFFF; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&!s.tte_valid);
+    hw.reg[M_CURRENT]=0x7FFF; CHECK(drv_max17263_sample(&dev,&s)==M_ERANGE&&!s.valid);
+    measurements(); hw.reg[M_TEMP]=0x8000; CHECK(drv_max17263_sample(&dev,&s)==M_ERANGE&&!s.valid);
+    measurements(); hw.fail_read=M_REPCAP; hw.fail_count=3;
+    CHECK(drv_max17263_sample(&dev,&s)==M_EIO&&!s.valid);
+    hw.fail_read=-1; hw.reset_mid_sample=true;
+    CHECK(drv_max17263_sample(&dev,&s)==M_EPOR&&!s.valid&&!dev.initialized);
+}
+static void initialization_faults(void) {
+    unsigned n;
+    fresh(); hw.dnr_stuck=true; CHECK(drv_max17263_initialize(&dev,NULL)==M_ETIMEOUT);
+    CHECK(hw.writes==0&&hw.tick==100);
+    fresh(); hw.refresh_stuck=true; CHECK(drv_max17263_initialize(&dev,NULL)==M_ETIMEOUT);
+    CHECK(hw.reg[M_HIBCFG]==0x870C&&(hw.reg[M_STATUS]&M_POR));
+    fresh(); hw.fail_write=M_DESIGNCAP; hw.fail_count=1;
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_EIO&&hw.reg[M_HIBCFG]==0x870C);
+    CHECK(hw.reg[M_STATUS]&M_POR); CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    hw.reg[M_DESIGNCAP]++; n=hw.writes;
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_EPROFILE&&hw.writes==n);
+    fresh(); cfg.rsense_uohm=10000; cfg.design_mah=100000;
+    CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_ERANGE);
+    fresh(); cfg.allow_uncharacterized=false; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_EPROFILE);
+    fresh(); cfg.recovery_mv=3199; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_ERANGE);
+    fresh(); hw.fail_read=M_STATUS; hw.fail_count=2;
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK); /* transient reads recovered */
+}
+static void full(void) {
+    unsigned i; max17263_learned_t p={0x1234,0x5678,7500,7800,2345};
+    /* Synthetic model ONLY for register protocol tests; never use on hardware. */
+    fresh(); memset(&model,0,sizeof(model)); for(i=0;i<32;i++) model.table[i]=(uint16_t)(0x1000+i);
+    model.rcompseg=0x1234; model.rcomp0=0x1111; model.tempco=0x2222;
+    model.qr[0]=1; model.qr[1]=2; model.qr[2]=3; model.qr[3]=4;
+    cfg.model=&model; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    CHECK(drv_max17263_initialize(&dev,&p)==M_OK);
+    CHECK(hw.reg[M_FULLCAPREP]==7500&&hw.reg[M_FULLCAPNOM]==7800&&hw.reg[M_CYCLES]==2345);
+    CHECK(hw.reg[M_DQACC]==3900&&hw.reg[M_DPACC]==0x0C80&&hw.reg[M_MIXCAP]==3900);
+    CHECK(!hw.reg[M_LOCK1]&&!hw.reg[M_LOCK2]&&hw.reg[M_QR20]==3&&hw.reg[M_QR30]==4);
+    fresh(); cfg.model=&model; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    hw.corrupt_table=true; CHECK(drv_max17263_initialize(&dev,NULL)==M_EVERIFY);
+    CHECK(!hw.reg[M_LOCK1]&&!hw.reg[M_LOCK2]&&hw.reg[M_HIBCFG]==0x870C&&(hw.reg[M_STATUS]&M_POR));
+    fresh(); cfg.model=&model; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    hw.load_stuck=true; CHECK(drv_max17263_initialize(&dev,NULL)==M_ETIMEOUT);
+    CHECK(hw.reg[M_HIBCFG]==0x870C&&(hw.reg[M_STATUS]&M_POR));
+    fresh(); cfg.model=&model; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    hw.lock_bad=true; CHECK(drv_max17263_initialize(&dev,NULL)==M_EVERIFY&&dev.model_lock_pending);
+    hw.lock_bad=false; CHECK(drv_max17263_initialize(&dev,NULL)==M_OK&&!dev.model_lock_pending);
+}
+static void alerts_led(void) {
+    fresh(); CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    CHECK(drv_max17263_alerts(&dev,2800,3660,0,55,10,-20000,5000)==M_OK);
+    CHECK(hw.reg[M_VALRT]==0xB78C&&hw.reg[M_TALRT]==0x3700&&hw.reg[M_IALRT]==0x199C);
+    CHECK(drv_max17263_alerts(&dev,2800,3650,0,55,10,-20000,5000)==M_EARG);
+    CHECK(drv_max17263_alerts(&dev,2800,3660,0,55,10,-20001,5000)==M_ERANGE);
+    hw.reg[M_STATUS]=M_POR|0x1100; CHECK(drv_max17263_ack_alerts(&dev,0x0100)==M_OK);
+    CHECK(hw.reg[M_STATUS]==(M_POR|0x1000));
+    hw.reg[M_STATUS]=0; /* LED configuration must refuse a pending gauge POR. */
+    hw.reg[M_LEDCFG3]=0x4000; CHECK(drv_max17263_led(&dev,5,1,16,2000,true)==M_OK);
+    CHECK(hw.reg[M_LEDCFG3]==0xC000&&hw.reg[M_LEDCFG1]==0x8C75&&hw.reg[M_LEDCFG2]==0x6450);
+}
+static void write_failure_sweep(void) {
+    static const uint8_t regs[]={M_SOFTWAKE,M_HIBCFG,M_MODELCFG,M_LOCK1,M_LOCK2,
+        0x80,0x9F,M_RCOMPSEG,M_REPCAP,M_DESIGNCAP,M_FULLCAPREP,M_DQACC,M_DPACC,
+        M_FULLCAPNOM,M_MIXCAP,M_AVCAP,M_RCOMP0,M_TEMPCO,M_ICHGTERM,M_VEMPTY,
+        M_QR00,M_QR10,M_QR20,M_QR30,M_CONFIG2,M_CYCLES,M_CONFIG,M_STATUS};
+    unsigned i;
+    for(i=0;i<sizeof(regs);i++) {
+        fresh(); cfg.model=&model; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+        hw.fail_write=regs[i]; hw.fail_count=1;
+        CHECK(drv_max17263_initialize(&dev,NULL)==M_EIO);
+        CHECK((hw.reg[M_STATUS]&M_POR)&&!dev.initialized);
+        CHECK(hw.reg[M_HIBCFG]==0x870C&&!hw.reg[M_LOCK1]&&!hw.reg[M_LOCK2]);
+        CHECK(drv_max17263_initialize(&dev,NULL)==M_OK&&dev.initialized);
+    }
+}
+static void leds12_and_schematic(void) {
+    uint16_t bit; unsigned i,n; max17263_sample_t s;
+    fresh(); cfg.rsense_uohm=1000; cfg.profile_id=2;
+    CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    CHECK(hw.reg[M_DESIGNCAP]==4000&&hw.reg[M_ICHGTERM]==640);
+    measurements(); hw.reg[M_CURRENT]=(uint16_t)(65536-640);
+    CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.current_ma==-1000);
+    CHECK(drv_max17263_alerts(&dev,2800,3660,0,55,10,-20000,4800)==M_OK);
+    CHECK(hw.reg[M_IALRT]==0x0CCE);
+    CHECK(drv_max17263_alerts(&dev,2800,3660,0,55,10,-20000,5000)==M_ERANGE);
+    hw.reg[M_LEDCFG3]=0x4000;
+    CHECK(drv_max17263_led(&dev,12,3,8,2000,false)==M_OK);
+    CHECK(hw.reg[M_LEDCFG1]==0x8CDC&&hw.reg[M_LEDCFG2]==0x6448);
+    CHECK(hw.reg[M_LEDCFG3]==0xC000);
+    CHECK(drv_max17263_led_set(&dev,0,true)==M_EPROFILE); /* must enter custom explicitly */
+    CHECK(drv_max17263_led_mask(&dev,0)==M_OK);
+    CHECK(hw.reg[M_LEDCFG1]==0x8CCC&&hw.reg[M_LEDCFG2]==0x6408&&hw.reg[M_LEDCFG3]==0xE000);
+    for(i=0;i<12;i++) {
+        bit=(uint16_t)(1u<<i);
+        CHECK(drv_max17263_led_mask(&dev,bit)==M_OK&&hw.reg[M_CUSTLED]==bit);
+        CHECK(drv_max17263_led_set(&dev,(uint8_t)i,false)==M_OK&&hw.reg[M_CUSTLED]==0);
+        CHECK(drv_max17263_led_set(&dev,(uint8_t)i,true)==M_OK&&hw.reg[M_CUSTLED]==bit);
+    }
+    CHECK(drv_max17263_led_mask(&dev,0x0FFF)==M_OK&&hw.reg[M_CUSTLED]==0x0FFF);
+    n=hw.writes;
+    CHECK(drv_max17263_led_mask(&dev,0x1000)==M_EARG&&hw.writes==n);
+    CHECK(drv_max17263_led_set(&dev,12,true)==M_EARG&&hw.writes==n);
+    CHECK(drv_max17263_led_mask(&dev,0)==M_OK&&hw.reg[M_CUSTLED]==0);
+    CHECK(drv_max17263_led(&dev,12,3,8,2000,false)==M_OK);
+    CHECK(hw.reg[M_LEDCFG3]==0xC000&&hw.reg[M_LEDCFG1]==0x8CDC);
+    hw.fail_write=M_CUSTLED; hw.fail_count=1;
+    CHECK(drv_max17263_led_mask(&dev,0x0FFF)==M_EIO);
+    CHECK(!(hw.reg[M_LEDCFG3]&0x2000)); /* failed preload must not enable custom */
+    hw.reg[M_LEDCFG3]=0;
+    CHECK(drv_max17263_led_mask(&dev,1)==M_OK&&hw.reg[M_LEDCFG3]==0xA000); /* DNC=0 preserved */
+    hw.reg[M_STATUS]|=M_POR; n=hw.writes;
+    CHECK(drv_max17263_led_mask(&dev,1)==M_EPOR&&hw.writes==n&&!dev.initialized);
+}
+static uint8_t flash[256],backup[256]; static int words_left=-1;
+static int nv_read(void *p,uint32_t off,uint8_t *b,size_t n) { (void)p; if(off+n>256) return -1; memcpy(b,flash+off,n); return 0; }
+static int nv_erase(void *p,unsigned sector) { (void)p; if(sector>1) return -1; memset(flash+sector*128,255,128); return 0; }
+static int nv_write(void *p,uint32_t off,const uint8_t *b,size_t n) {
+    size_t i,j; (void)p; if(off+n>256) return -1;
+    for(i=0;i<n;i+=4) {
+        if(words_left==0) return -1;
+        if(words_left>0) words_left--;
+        for(j=0;j<4;j++) { if((flash[off+i+j]&b[i+j])!=b[i+j]) return -1; flash[off+i+j]&=b[i+j]; }
+    }
+    return 0;
+}
+static battery_store_t store={NULL,128,nv_read,nv_erase,nv_write};
+static void persistence(void) {
+    max17263_learned_t p={1,2,8000,8000,100},q; int cut;
+    fresh(); memset(flash,255,sizeof(flash)); words_left=-1;
+    CHECK(battery_store_load(&store,&dev,&q)==M_ENOTREADY);
+    CHECK(battery_store_save(&store,&dev,&p)==M_OK);
+    CHECK(battery_store_load(&store,&dev,&q)==M_OK&&q.cycles==100);
+    p.cycles=164; CHECK(battery_store_save(&store,&dev,&p)==M_OK);
+    memcpy(backup,flash,sizeof(flash)); p.cycles=228;
+    for(cut=0;cut<16;cut++) {
+        memcpy(flash,backup,sizeof(flash)); words_left=cut;
+        CHECK(battery_store_save(&store,&dev,&p)==M_ENVM);
+        CHECK(battery_store_load(&store,&dev,&q)==M_OK&&q.cycles==164);
+    }
+    words_left=-1; CHECK(battery_store_save(&store,&dev,&p)==M_OK);
+    CHECK(battery_store_load(&store,&dev,&q)==M_OK&&q.cycles==228);
+    dev.cfg.battery_id++; CHECK(battery_store_load(&store,&dev,&q)==M_ENOTREADY);
+    dev.cfg.battery_id--; dev.cfg.profile_id++; CHECK(battery_store_load(&store,&dev,&q)==M_ENOTREADY);
+    dev.cfg.profile_id--; flash[128+28]^=1; /* corrupt newest committed record; older survives */
+    CHECK(battery_store_load(&store,&dev,&q)==M_OK&&q.cycles==164);
+}
+static void application(void) {
+    battery_app_t a;
+    battery_policy_t policy={2800,3660,0,55,10,20000,5000,1000,3500,5,1,16,2000,true};
+    fresh(); measurements(); hw.reg[M_TEMP]=25*256;
+    CHECK(battery_app_start(&a,&bus,&cfg,&policy,NULL)==M_OK);
+    battery_app_process(&a); CHECK(a.ready&&a.sample.valid);
+    hw.reg[M_VCELL]=34000; hw.tick+=1000; battery_app_process(&a);
+    CHECK(a.active_faults&BAT_FAULT_UV);
+    hw.reg[M_VCELL]=36000; hw.tick+=1000; battery_app_process(&a);
+    CHECK(a.active_faults&BAT_FAULT_UV); /* hysteresis */
+    hw.reg[M_VCELL]=40960; hw.tick+=1000; battery_app_process(&a);
+    CHECK(!(a.active_faults&BAT_FAULT_UV)&&(a.latched_faults&BAT_FAULT_UV));
+    hw.fail_read=M_VCELL; hw.fail_count=-1; hw.tick+=1000; battery_app_process(&a);
+    CHECK(!a.sample.valid&&(a.active_faults&BAT_FAULT_IO));
+    hw.tick+=4000; battery_app_process(&a); CHECK(a.active_faults&BAT_FAULT_STALE);
+    hw.fail_read=-1; hw.tick+=1000; battery_app_process(&a);
+    CHECK(a.sample.valid&&!(a.active_faults&(BAT_FAULT_IO|BAT_FAULT_STALE)));
+    hw.reg[M_STATUS]|=M_POR; hw.tick+=1000; battery_app_process(&a);
+    CHECK(!a.ready&&!a.sample.valid&&(a.active_faults&BAT_FAULT_RESET));
+    hw.tick+=5000; battery_app_process(&a); CHECK(a.ready&&a.sample.valid);
+    battery_app_clear_history(&a); CHECK(a.latched_faults==a.active_faults);
+    hw.tick=0xFFFFFF00u; a.last_attempt=hw.tick; hw.tick+=2000;
+    battery_app_process(&a); CHECK(a.sample.valid); /* tick wrap */
+    CHECK(battery_app_led_mask(&a,0x0FFF)==M_OK);
+    CHECK(battery_app_led_soc(&a)==M_OK&&!(hw.reg[M_LEDCFG3]&0x2000u));
+    hw.reg[M_STATUS]|=M_POR;
+    CHECK(battery_app_led_mask(&a,1)==M_EPOR&&!a.gauge.initialized);
+    battery_app_process(&a); CHECK(!a.ready&&!a.sample.valid);
+    hw.tick+=5000; battery_app_process(&a);
+    CHECK(a.ready&&a.sample.valid&&!(hw.reg[M_LEDCFG3]&0x2000u));
+}
+static void internal_and_high_current(void) {
+    max17263_sample_t s;
+    fresh(); CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    cfg.external_ntc=false;
+    CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    CHECK((hw.reg[M_CONFIG]&0x87D8u)==0x0200u);
+    fresh();cfg.external_ntc=false;cfg.rsense_uohm=1000;
+    cfg.empty_mv=2500;cfg.recovery_mv=3000;
+    CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    CHECK(hw.reg[M_VEMPTY]==0x7D4Bu);
+    measurements(); hw.reg[M_CURRENT]=(uint16_t)(int16_t)-26880;
+    CHECK(drv_max17263_sample(&dev,&s)==M_OK);
+    CHECK(s.pack_mv==25600 && s.current_ma==-42000);
+    hw.reg[M_STATUS]|=M_BST; /* unused TH must not imply missing pack in die mode */
+    CHECK(drv_max17263_sample(&dev,&s)==M_OK && s.valid);
+    dev.cfg.external_ntc=true;
+    CHECK(drv_max17263_sample(&dev,&s)==M_ERANGE && !s.valid);
+}
+__attribute__((noinline)) void test_done(void) { for(;;) {} }
+void test_main(void) {
+    internal_and_high_current(); basic(); initialization_faults(); full(); alerts_led(); write_failure_sweep();
+    persistence(); application(); leds12_and_schematic(); test_done();
+}

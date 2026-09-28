@@ -1,0 +1,26 @@
+# ---- Build outputs (CubeIDE / GCC) ----
+Debug/
+Release/
+*.o
+*.d
+*.elf
+*.bin
+*.map
+*.hex
+*.lst
+*.cyclo
+*.su
+*.user
+
+# ---- IDE / workspace ----
+.settings/
+.metadata/
+*.launch
+
+# ---- AI tooling traces ----
+.claude/
+docs/superpowers/
+
+# ---- OS ----
+Thumbs.db
+Desktop.ini

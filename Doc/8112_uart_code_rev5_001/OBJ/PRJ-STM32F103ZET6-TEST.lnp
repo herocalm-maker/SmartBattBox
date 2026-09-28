@@ -1,0 +1,19 @@
+--cpu Cortex-M3
+"..\obj\sys.o"
+"..\obj\startup_stm32f10x_hd.o"
+"..\obj\test.o"
+"..\obj\delay.o"
+"..\obj\usart.o"
+"..\obj\led.o"
+"..\obj\key.o"
+"..\obj\beep.o"
+"..\obj\timer.o"
+"..\obj\hlw8112_log_1.o"
+"..\obj\hlw8112_hw.o"
+"..\obj\hlw8112_reader.o"
+"..\obj\hlw8112_protocol.o"
+"..\obj\hlw8112_calc.o"
+--strict --scatter "..\OBJ\PRJ-STM32F103ZET6-TEST.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "..\OBJ\PRJ-STM32F103ZET6-TEST.map" -o ..\OBJ\PRJ-STM32F103ZET6-TEST.axf
