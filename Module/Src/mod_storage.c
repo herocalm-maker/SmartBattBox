@@ -42,3 +42,14 @@ int mod_storage_battery_erase(void *c,unsigned sector) {
  }
  osMutexRelease(storage_mutex);return ok?0:-1;
 }
+int mod_storage_param_backup_write(const uint8_t *data, size_t len) {
+ if(!data||len==0||len>STORAGE_SEC_CONFIG_SIZE||!acquire()) return -1;
+ bool ok=drv_w25q128_erase_sector(4096u*STORAGE_SEC_CONFIG);
+ if(ok) ok=drv_w25q128_write(4096u*STORAGE_SEC_CONFIG,data,(uint32_t)len);
+ osMutexRelease(storage_mutex);return ok?0:-1;
+}
+int mod_storage_param_backup_read(uint8_t *out, size_t len) {
+ if(!out||len==0||len>STORAGE_SEC_CONFIG_SIZE||!acquire()) return -1;
+ bool ok=drv_w25q128_read(4096u*STORAGE_SEC_CONFIG,out,(uint32_t)len);
+ osMutexRelease(storage_mutex);return ok?0:-1;
+}

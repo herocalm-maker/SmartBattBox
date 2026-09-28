@@ -19,19 +19,20 @@
  *--------------------------------------------------------------------*/
 static bool _addr_valid(uint32_t addr, uint16_t len)
 {
-    return (addr >= BSP_FLASH_PARAM_BASE) &&
-           (addr <  BSP_FLASH_PARAM_BASE + BSP_FLASH_PARAM_SIZE) &&
-           ((uint32_t)len <= BSP_FLASH_PARAM_BASE + BSP_FLASH_PARAM_SIZE - addr);
+    return (addr >= s_base) &&
+           (addr <  s_base + s_size) &&
+           ((uint32_t)len <= s_base + s_size - addr);
 }
 
 /*====================================================================
  * 函数实现
  *====================================================================*/
 
-bool bsp_flash_init(void)
+bool bsp_flash_init(uint32_t base, uint32_t size, uint32_t sector)
 {
-    /* PARAM 扇区基址须落在扇区 11 起始 (0x080E0000) */
-    if (BSP_FLASH_PARAM_BASE != 0x080E0000u) return false;
+    /* 窗口须落在 MCU 内部 Flash 地址空间内 (0x08000000-0x080FFFFF) */
+    if (base < 0x08000000u || base > 0x080FFFFFu || size == 0u) return false;
+    s_base = base; s_size = size; s_sector = sector;
     return true;
 }
 
@@ -82,7 +83,7 @@ bool bsp_flash_erase(void)
     FLASH_EraseInitTypeDef erase = {
         .TypeErase    = FLASH_TYPEERASE_SECTORS,
         .VoltageRange = FLASH_VOLTAGE_RANGE_3,  /* 2.7-3.6V, x32 parallelism */
-        .Sector       = BSP_FLASH_PARAM_SECTOR,
+        .Sector       = s_sector,
         .NbSectors    = 1,
     };
     uint32_t sector_err = 0;

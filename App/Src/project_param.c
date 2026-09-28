@@ -4,6 +4,8 @@
  */
 #include "project_param.h"
 #include "bsp_flash.h"
+#include "mod_storage.h"
+#include "stm32f4xx_hal.h"
 #include "comm_logger.h"
 #include <string.h>
 
@@ -87,6 +89,15 @@ static bool _slot_valid(uint32_t addr, sys_param_t *out)
     return true;
 }
 
+static bool _backup_valid(sys_param_t *out)
+{
+    if (!out) return false;
+    if (mod_storage_param_backup_read((uint8_t *)out, sizeof(sys_param_t)) != 0) return false;
+    if (out->magic != PARAM_MAGIC) return false;
+    if (_param_crc(out) != out->crc32) return false;
+    return true;
+}
+
 /*====================================================================
  * API
  *====================================================================*/
@@ -96,7 +107,7 @@ static bool _slot_valid(uint32_t addr, sys_param_t *out)
  */
 void param_init(void)
 {
-    if (!bsp_flash_init())
+    if (!bsp_flash_init(PARAM_FLASH_BASE, PARAM_FLASH_SIZE, FLASH_SECTOR_11))
     {
         logger_out(LOG_ERROR, "param: flash init failed");
     }
@@ -112,10 +123,10 @@ void param_init(void)
     }
 
     /* 2. 尝试 backup */
-    if (_slot_valid(PARAM_BACKUP_ADDR, &tmp))
+    if (_backup_valid(&tmp))
     {
         s_param = tmp;
-        logger_out(LOG_WARN, "param: primary BAD, backup OK");
+        logger_out(LOG_WARN, "param: primary BAD, external backup OK");
         /* 回写 primary */
         param_store();
         return;
@@ -148,24 +159,23 @@ bool param_store(void)
     s_param.version = PARAM_VERSION;
     s_param.crc32 = _param_crc(&s_param);
 
-    /* 擦除整个 Sector 11 */
+    /* 1. 先写外部 backup (W25Q128 扇区 0); 失败不阻断 primary */
+    if (mod_storage_param_backup_write((const uint8_t *)&s_param, sizeof(s_param)) != 0)
+    {
+        logger_out(LOG_WARN, "param: external backup write failed");
+    }
+
+    /* 2. 擦除内部 Sector 11 */
     if (!bsp_flash_erase())
     {
         logger_out(LOG_ERROR, "param: erase failed");
         return false;
     }
 
-    /* 写 primary */
+    /* 3. 写 primary (总是最新) */
     if (!bsp_flash_write(PARAM_PRIMARY_ADDR, &s_param, sizeof(s_param)))
     {
         logger_out(LOG_ERROR, "param: write primary failed");
-        return false;
-    }
-
-    /* 写 backup */
-    if (!bsp_flash_write(PARAM_BACKUP_ADDR, &s_param, sizeof(s_param)))
-    {
-        logger_out(LOG_ERROR, "param: write backup failed");
         return false;
     }
 

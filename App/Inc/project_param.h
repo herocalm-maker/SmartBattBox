@@ -1,15 +1,15 @@
 /**
  * @file    project_param.h
- * @brief   系统参数管理 — 统一结构体 + 主/备双区 + CRC32 校验
+ * @brief   系统参数管理 — 统一结构体 + 内部主区 + 外部备份 + CRC32 校验
  *
- * 布局 (内部 Flash Sector 11, 128KB):
- *   0x080E0000  sys_param_t 主区 (primary)
- *   0x080E1000  sys_param_t 备份区 (backup)
+ * 布局:
+ *   primary: 内部 Flash Sector 11 (0x080E0000, 128KB 窗口)
+ *   backup:  外部 W25Q128 扇区 0 (mod_storage, 4KB)
  *
  * 加载策略: primary CRC OK → 用 primary;
- *           否则 try backup → 用 backup;
- *           均失败 → 写默认值到 primary + backup.
- * 存储策略: 擦除整个 Sector 11 → 写 primary → 写 backup.
+ *           否则 try 外部 backup → 用 backup;
+ *           均失败 → 写默认值到 primary + 外部 backup.
+ * 存储策略: 先写外部 backup → 擦除内部 Sector 11 → 写 primary.
  */
 #ifndef __PROJECT_PARAM_H__
 #define __PROJECT_PARAM_H__
@@ -25,9 +25,9 @@ extern "C"
 /*====================================================================
  * Flash 地址定义 (Sector 11)
  *====================================================================*/
-#define PARAM_FLASH_BASE 0x080E0000u
-#define PARAM_PRIMARY_ADDR PARAM_FLASH_BASE            /* 主区 */
-#define PARAM_BACKUP_ADDR (PARAM_FLASH_BASE + 0x1000u) /* 备份区 (4KB 偏移) */
+#define PARAM_FLASH_BASE  0x080E0000u /* primary 扇区基址 (Sector 11) */
+#define PARAM_FLASH_SIZE  0x00020000u /* 窗口大小 128KB */
+#define PARAM_PRIMARY_ADDR PARAM_FLASH_BASE /* primary 起始地址 */
 
 /*====================================================================
  * 统一参数结构体

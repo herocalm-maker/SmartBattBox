@@ -35,9 +35,12 @@ int mod_storage_battery_read(void *,uint32_t,uint8_t *,size_t);
 int mod_storage_battery_program(void *,uint32_t,const uint8_t *,size_t);
 int mod_storage_battery_erase(void *,unsigned);
 
-#define STORAGE_SEC_CONFIG        0u     /* 配置区: 扇区 0 (0x000000), 4KB */
-#define STORAGE_SEC_LOG_START     1u     /* 日志区起始扇区: 扇区 1 (0x001000) */
-#define STORAGE_SEC_LOG_CNT       8u     /* 日志区扇区数: 8 (32KB 环形缓冲) */
+/* 参数备份 (扇区 0, 4KB): 通用字节接口, 由 project_param 调用 */
+extern int mod_storage_param_backup_write(const uint8_t *data, size_t len);
+extern int mod_storage_param_backup_read(uint8_t *out, size_t len);
+
+#define STORAGE_SEC_CONFIG        0u     /* 配置区(参数备份): 扇区 0 (0x000000), 4KB */
+#define STORAGE_SEC_CONFIG_SIZE   4096u  /* 参数备份扇区容量, 字节 */
 
 /* 初始化 Flash 存储模块, 创建互斥锁并初始化 W25Q128 */
 extern void mod_storage_init(void);
