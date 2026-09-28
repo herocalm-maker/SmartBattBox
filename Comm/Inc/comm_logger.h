@@ -38,7 +38,7 @@ typedef enum {
 /* 初始化日志模块 */
 extern void logger_init(uint32_t baudrate);
 /* 带级别前缀的日志输出 */
-extern void logger_print(log_level_enum lv, const char *fmt, ...);
+extern void logger_out(log_level_enum lv, const char *fmt, ...);
 
 /*====================================================================
  * 便捷宏 (小写, 避免与枚举 LOG_INFO 等冲突)
@@ -46,12 +46,12 @@ extern void logger_print(log_level_enum lv, const char *fmt, ...);
  *   log_info("voltage: %dV", v);
  *   → 输出: @Info>: voltage: 220V\r\n
  *====================================================================*/
-#define log_print(fmt, ...)    logger_print(LOG_NONE,   fmt, ##__VA_ARGS__)
-#define log_verbose(fmt, ...)  logger_print(LOG_VERBOSE, fmt, ##__VA_ARGS__)
-#define log_debug(fmt, ...)    logger_print(LOG_DEBUG,   fmt, ##__VA_ARGS__)
-#define log_info(fmt, ...)     logger_print(LOG_INFO,    fmt, ##__VA_ARGS__)
-#define log_warn(fmt, ...)     logger_print(LOG_WARN,    fmt, ##__VA_ARGS__)
-#define log_error(fmt, ...)    logger_print(LOG_ERROR,   fmt, ##__VA_ARGS__)
+#define log_print(fmt, ...)    logger_out(LOG_NONE,   fmt, ##__VA_ARGS__)
+#define log_verbose(fmt, ...)  logger_out(LOG_VERBOSE, fmt, ##__VA_ARGS__)
+#define log_debug(fmt, ...)    logger_out(LOG_DEBUG,   fmt, ##__VA_ARGS__)
+#define log_info(fmt, ...)     logger_out(LOG_INFO,    fmt, ##__VA_ARGS__)
+#define log_warn(fmt, ...)     logger_out(LOG_WARN,    fmt, ##__VA_ARGS__)
+#define log_error(fmt, ...)    logger_out(LOG_ERROR,   fmt, ##__VA_ARGS__)
 
 #ifdef __cplusplus
 }

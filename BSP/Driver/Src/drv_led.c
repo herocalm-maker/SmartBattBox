@@ -23,7 +23,7 @@ void drv_led_init(void)
     drv_led_off(LED_SIG);
     drv_led_off(LED_SIG2);
     drv_led_off(LED_ALM);
-    logger_print(LOG_INFO, "drv_led: init");
+    logger_out(LOG_INFO, "drv_led: init");
 }
 
 /*********************************************************************

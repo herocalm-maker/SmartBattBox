@@ -98,7 +98,7 @@ bool mod_key_init(void)
     memset((void *)&s_key, 0, sizeof(s_key));
     s_key_callback = NULL;
 
-    logger_print(LOG_INFO, "mod_key: init OK");
+    logger_out(LOG_INFO, "mod_key: init OK");
     return true;
 }
 

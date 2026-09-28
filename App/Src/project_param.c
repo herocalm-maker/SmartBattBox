@@ -98,7 +98,7 @@ void param_init(void)
 {
     if (!bsp_flash_init())
     {
-        logger_print(LOG_ERROR, "param: flash init failed");
+        logger_out(LOG_ERROR, "param: flash init failed");
     }
 
     sys_param_t tmp;
@@ -107,7 +107,7 @@ void param_init(void)
     if (_slot_valid(PARAM_PRIMARY_ADDR, &tmp))
     {
         s_param = tmp;
-        logger_print(LOG_INFO, "param: primary OK (v%lu)", (unsigned long)s_param.version);
+        logger_out(LOG_INFO, "param: primary OK (v%lu)", (unsigned long)s_param.version);
         return;
     }
 
@@ -115,14 +115,14 @@ void param_init(void)
     if (_slot_valid(PARAM_BACKUP_ADDR, &tmp))
     {
         s_param = tmp;
-        logger_print(LOG_WARN, "param: primary BAD, backup OK");
+        logger_out(LOG_WARN, "param: primary BAD, backup OK");
         /* 回写 primary */
         param_store();
         return;
     }
 
     /* 3. 均失败 → 默认值 */
-    logger_print(LOG_WARN, "param: both BAD, load defaults");
+    logger_out(LOG_WARN, "param: both BAD, load defaults");
     s_param = s_default;
     s_param.crc32 = _param_crc(&s_param);
     param_store();
@@ -151,21 +151,21 @@ bool param_store(void)
     /* 擦除整个 Sector 11 */
     if (!bsp_flash_erase())
     {
-        logger_print(LOG_ERROR, "param: erase failed");
+        logger_out(LOG_ERROR, "param: erase failed");
         return false;
     }
 
     /* 写 primary */
     if (!bsp_flash_write(PARAM_PRIMARY_ADDR, &s_param, sizeof(s_param)))
     {
-        logger_print(LOG_ERROR, "param: write primary failed");
+        logger_out(LOG_ERROR, "param: write primary failed");
         return false;
     }
 
     /* 写 backup */
     if (!bsp_flash_write(PARAM_BACKUP_ADDR, &s_param, sizeof(s_param)))
     {
-        logger_print(LOG_ERROR, "param: write backup failed");
+        logger_out(LOG_ERROR, "param: write backup failed");
         return false;
     }
 

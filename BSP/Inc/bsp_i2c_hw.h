@@ -4,8 +4,7 @@
  *
  * 设计目标:
  *   - 使用 I2C1 硬件外设收发, 引脚 PB6(SCL)/PB7(SDA) 复用 AF4 (Board.h)
- *   - 与软件模拟 bsp_i2c.c 并存, API 签名/返回码保持一致, 便于切换对比验证
- *   - 返回码复用 bsp_i2c.h 的 BSP_I2C_* 宏, 不重复定义
+ *   - 返回码 BSP_I2C_* 在本文件定义 (软件模拟 bsp_i2c 已移除)
  */
 #ifndef __BSP_I2C_HW_H__
 #define __BSP_I2C_HW_H__
@@ -15,8 +14,14 @@ extern "C" {
 #endif
 
 #include "main.h"
-#include "bsp_i2c.h"    /* 复用 BSP_I2C_OK/BSP_I2C_ERR* 返回码 */
 #include <stdint.h>
+
+/* I2C 返回码 */
+#define BSP_I2C_OK        0U  /* 成功 */
+#define BSP_I2C_ERR       1U  /* 参数错误 (NULL/len=0) */
+#define BSP_I2C_ERR_ADDR  2U  /* 设备地址 NACK: 芯片不在线/地址错/无上拉/无供电 */
+#define BSP_I2C_ERR_REG   3U  /* 寄存器地址 NACK (不应出现) */
+#define BSP_I2C_ERR_DATA  4U  /* 数据字节 NACK */
 
 /* 单次阻塞收发超时, 单位 ms */
 #define BSP_I2C_HW_TIMEOUT_MS   100U

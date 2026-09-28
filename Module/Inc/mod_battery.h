@@ -29,7 +29,8 @@ typedef struct
     uint16_t time_to_full_min; /* 预计充满分钟数，仅ttf_valid时有效 */
     uint16_t alert_flags; /* 已观测到的芯片告警位 */
     uint32_t timestamp_ms; /* 最后有效采样的毫秒时间戳，可回绕 */
-    uint32_t active_faults; /* 当前应用故障位图 */
+    uint32_t active_faults; /* 当前应用故障位图 (BAT_FAULT_*, 内部诊断用) */
+    uint32_t alarm_bits;    /* 统一告警位图 (sys_alarm.h), 由 active_faults 折叠 */
     uint32_t latched_faults; /* 锁存的历史故障位图 */
     int last_error; /* 最近一次应用操作错误码 */
     bool valid; /* 快照是否完整有效且未过期 */

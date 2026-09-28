@@ -20,7 +20,7 @@ void drv_fan_init(void)
     bsp_gpio_init(BOARD_FAN2_CTRL_PORT, BOARD_FAN2_CTRL_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
 
     drv_fan_all_off();
-    logger_print(LOG_INFO, "drv_fan: init");
+    logger_out(LOG_INFO, "drv_fan: init");
 }
 
 /*********************************************************************

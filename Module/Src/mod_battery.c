@@ -7,6 +7,7 @@
  * @note    此模块输出状态与故障；通路动作由AppMainTask决定，不能替代独立BMS。
  */
 #include "app_battery.h"
+#include "sys_alarm.h"
 #include <string.h>
 /*********************************************************************
  * @fn      now
@@ -830,6 +831,18 @@ static int32_t rounded(float f)
  * @return  none
  * @note    临界区仅覆盖结构体复制；日志及诊断读取均在临界区外。
 ********************************************************************/
+static uint32_t fold_alarm(uint32_t faults)
+{
+    uint32_t out = 0;
+    if (faults & BAT_FAULT_OV)                                out |= SYS_ALARM_BAT_OVP;
+    if (faults & BAT_FAULT_UV)                                out |= SYS_ALARM_BAT_UVP;
+    if (faults & BAT_FAULT_HOT)                               out |= SYS_ALARM_BAT_OTP;
+    if (faults & (BAT_FAULT_OC_DIS | BAT_FAULT_OC_CHG))       out |= SYS_ALARM_BAT_OCP;
+    if (faults & BAT_FAULT_LOW_SOC)                           out |= SYS_ALARM_LOW_SOC;
+    if (faults & (BAT_FAULT_NVM | BAT_FAULT_PROFILE | BAT_FAULT_RESET | BAT_FAULT_STALE)) out |= SYS_ALARM_STORAGE;
+    if (faults & (BAT_FAULT_IO | BAT_FAULT_SENSOR))           out |= SYS_ALARM_BAT_INVALID;
+    return out;
+}
 static void publish(void *c, const battery_app_t *a)
 {
     BATT_INFO_T x = {0};
@@ -838,6 +851,7 @@ static void publish(void *c, const battery_app_t *a)
     x.online = x.valid;
     x.timestamp_ms = a->sample.timestamp_ms;
     x.active_faults = a->active_faults;
+    x.alarm_bits = fold_alarm(a->active_faults);
     x.latched_faults = a->latched_faults;
     x.last_error = a->last_error;
     x.alert_flags = a->observed_alerts;
@@ -866,7 +880,7 @@ static void publish(void *c, const battery_app_t *a)
     published = x;
     taskEXIT_CRITICAL();
 #if BATTERY_CSV_ENABLE
-    logger_print(LOG_INFO, "BATCSV,%lu,%u,%lu,%ld,%ld,%d,%u,%lu,%lu,%u,%lu,%d", (unsigned long)x.timestamp_ms,
+    logger_out(LOG_INFO, "BATCSV,%lu,%u,%lu,%ld,%ld,%d,%u,%lu,%lu,%u,%lu,%d", (unsigned long)x.timestamp_ms,
                  x.valid, (unsigned long)x.voltage_mv, (long)x.current_ma, (long)x.avg_current_ma, x.temp_deg,
                  x.soc, (unsigned long)x.repcap_mah, (unsigned long)x.fullcap_mah, x.cycles_raw,
                  (unsigned long)x.active_faults, x.last_error);
@@ -894,7 +908,7 @@ static void publish(void *c, const battery_app_t *a)
         {
             dr = drv_max17263_read(&gauge_app.gauge, M_TEMPCO, &tc);
         }
-        logger_print(LOG_INFO, "BATDIAG,%lu,%d,%u,%u,%u,%u,%u,%u,%lu", (unsigned long)x.timestamp_ms, dr,
+        logger_out(LOG_INFO, "BATDIAG,%lu,%d,%u,%u,%u,%u,%u,%u,%lu", (unsigned long)x.timestamp_ms, dr,
                      a->sample.status, fs, mix, vf, rc, tc,
                      (unsigned long)rounded(a->sample.nominal_full_mah));
     }
@@ -925,7 +939,7 @@ bool mod_battery_init(void)
     gauge_app.on_update = publish;
     gauge_app.recover_bus = recover_i2c;
     module_started = true;
-    logger_print(LOG_WARN, "BAT: 8S 1mOhm internal DIE temp; 20Ah/1A parameters require pack confirmation");
+    logger_out(LOG_WARN, "BAT: 8S 1mOhm internal DIE temp; 20Ah/1A parameters require pack confirmation");
     return true;
 }
 /* Read-only fault diagnostics: SensorTask owns bus; never reset/reconfigure to hide a fault.
@@ -947,7 +961,7 @@ static void battery_diagnose(void)
     {
         if (!was_valid)
         {
-            logger_print(LOG_INFO, "BAT: gauge data valid, initialized=%u", gauge_app.ready);
+            logger_out(LOG_INFO, "BAT: gauge data valid, initialized=%u", gauge_app.ready);
         }
         was_valid = true;
         return;
@@ -961,7 +975,7 @@ static void battery_diagnose(void)
     was_valid = false;
     last_log = t;
     last_error = gauge_app.last_error;
-    logger_print(LOG_WARN, "BAT FAIL: err=%d(%s) init=%u io_fail_reg=0x%02X faults=0x%08lX count=%u",
+    logger_out(LOG_WARN, "BAT FAIL: err=%d(%s) init=%u io_fail_reg=0x%02X faults=0x%08lX count=%u",
                  gauge_app.last_error, drv_max17263_error_string(gauge_app.last_error), gauge_app.ready,
                  gauge_app.gauge.failed_reg, (unsigned long)gauge_app.active_faults,
                  gauge_app.consecutive_errors);
@@ -976,23 +990,23 @@ static void battery_diagnose(void)
         int r = drv_max17263_read(&probe, regs[i], &v[i]);
         if (r)
         {
-            logger_print(LOG_WARN,
+            logger_out(LOG_WARN,
                          "BAT REG: read reg=0x%02X failed=%d; check I2C1 PB6/PB7, 0x36 and gauge supply",
                          regs[i], r);
             return;
         }
     }
-    logger_print(LOG_WARN, "BAT REG: Dev=%04X Status=%04X FStat=%04X Model=%04X Config=%04X", v[0], v[1],
+    logger_out(LOG_WARN, "BAT REG: Dev=%04X Status=%04X FStat=%04X Model=%04X Config=%04X", v[0], v[1],
                  v[2], v[3], v[4]);
-    logger_print(LOG_WARN,
+    logger_out(LOG_WARN,
                  "BAT CFG: Design=%04X/%04X Term=%04X/%04X Empty=%04X/%04X Hib=%04X (actual/expected)", v[5],
                  probe.design_raw, v[6], probe.term_raw, v[7], probe.empty_raw, v[8]);
-    logger_print(LOG_WARN, "BAT RAW: VCell=%04X Current=%04X Temp=%04X SOC=%04X FullRep=%04X FullNom=%04X",
+    logger_out(LOG_WARN, "BAT RAW: VCell=%04X Current=%04X Temp=%04X SOC=%04X FullRep=%04X FullNom=%04X",
                  v[9], v[10], v[11], v[12], v[13], v[14]);
-    logger_print(LOG_WARN, "BAT LED: Cfg1=%04X Cfg2=%04X Cfg3=%04X", v[15], v[16], v[17]);
+    logger_out(LOG_WARN, "BAT LED: Cfg1=%04X Cfg2=%04X Cfg3=%04X", v[15], v[16], v[17]);
     if (gauge_app.last_error == M_EPROFILE && !(v[1] & M_POR))
     {
-        logger_print(LOG_WARN, "BAT: warm-start profile mismatch; fully power-cycle MAX17263 after firmware "
+        logger_out(LOG_WARN, "BAT: warm-start profile mismatch; fully power-cycle MAX17263 after firmware "
                                "update (MCU reset is insufficient)");
     }
 }

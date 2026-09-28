@@ -67,13 +67,13 @@ static bool Debug_Uart_Send(uint8_t *pdata, uint16_t nbyte)
 }
 
 /*********************************************************************
- * @fn      logger_print
+ * @fn      logger_out
  * @brief   带级别前缀的日志输出
  * @param   lv    日志级别
  * @param   fmt   格式化字符串
  * @return  void
  ********************************************************************/
-void logger_print(log_level_enum lv, const char *fmt, ...)
+void logger_out(log_level_enum lv, const char *fmt, ...)
 {
   va_list args;
   int len = 0, titlelen = 0;

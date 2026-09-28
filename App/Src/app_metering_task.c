@@ -70,13 +70,13 @@ static void metering_verify_syscon(void)
             int k1_d = (int)(s_metering_hwcfg.k1 * 1000.0f) % 1000;
             int k2_i = (int)(s_metering_hwcfg.k2);
             int k2_d = (int)(s_metering_hwcfg.k2 * 1000.0f) % 1000;
-            log_print("Metering: ch[%s] SYSCON=0x%04X PGA_A=1 %s (K1=%d.%03d K2=%d.%03d)",
+            log_info("Metering: ch[%s] SYSCON=0x%04X PGA_A=1 %s (K1=%d.%03d K2=%d.%03d)",
                       ch_name[i], (unsigned)syscon, pga_ok ? "OK" : "MISMATCH", k1_i, k1_d, k2_i,
                       k2_d);
         }
         else
         {
-            log_print("Metering: ch[%s] SYSCON read fail", ch_name[i]);
+            log_info("Metering: ch[%s] SYSCON read fail", ch_name[i]);
         }
     }
 }
@@ -133,7 +133,7 @@ static void metering_tim_process(void)
             int32_t vout_f_i = (int32_t)(m->vout_freq_hz);
             int32_t vout_f_d = (int32_t)(m->vout_freq_hz * 10 + 0.5f) % 10;
 
-            logger_print(
+            logger_out(
                 LOG_INFO,
                 "[METER] VIN:%d.%dV %d.%02dA %d.%dW %d.%dHz | VOUT:%d.%dV %d.%02dA %d.%dW %d.%dHz | AC:%d",
                 vin_v_i, vin_v_d < 0 ? -vin_v_d : vin_v_d, vin_i_i,

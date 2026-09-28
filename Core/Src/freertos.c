@@ -109,9 +109,9 @@ void MX_FREERTOS_Init(void)
   //显示屏
   if (!drv_dwin_init(BSP_UART_4))
   {
-    logger_print(LOG_ERROR, "dwin: init failed");
+    logger_out(LOG_ERROR, "dwin: init failed");
   }
-  logger_print(LOG_INFO, "display_task init");
+  logger_out(LOG_INFO, "display_task init");
   //创建消息队列
   xMainQueueHandle   = xQueueCreateStatic(MAIN_MSG_QUEUE_MAX_NUM, sizeof(ucMESSAGE_t), ucMainMsgQueueBuff, &xMainMsgQueue);
   xBleQueueHandle    = xQueueCreateStatic(BLE_MSG_QUEUE_MAX_NUM, sizeof(ucMESSAGE_t), ucBleMsgQueueBuff, &xBleMsgQueue);

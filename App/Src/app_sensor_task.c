@@ -53,7 +53,7 @@ static void sensor_tim_process(void)
         if (bat)
         {
             int16_t t_abs = bat->temp_deg < 0 ? -bat->temp_deg : bat->temp_deg;
-            logger_print(LOG_INFO,
+            logger_out(LOG_INFO,
                          "[BAT] SOC:%u%% %lumV %ldmA Cap:%lu/%lu DieT:%s%d.%dC SOHcap:%u%%",
                          bat->soc, (unsigned long)bat->voltage_mv, (long)bat->current_ma,
                          (unsigned long)bat->repcap_mah, (unsigned long)bat->fullcap_mah,
@@ -61,7 +61,7 @@ static void sensor_tim_process(void)
         }
         else
         {
-            logger_print(
+            logger_out(
                 LOG_WARN,
                 "[BAT] INVALID error=%d (%s) faults=0x%08lX history=0x%08lX last_sample_ms=%lu",
                 snapshot.last_error, drv_max17263_error_string(snapshot.last_error),
@@ -74,7 +74,7 @@ static void sensor_tim_process(void)
             int16_t chg_abs = t->chg_temp < 0 ? -t->chg_temp : t->chg_temp;
             int16_t bat_abs = t->bat_temp < 0 ? -t->bat_temp : t->bat_temp;
             int16_t inv_abs = t->inv_temp < 0 ? -t->inv_temp : t->inv_temp;
-            logger_print(LOG_INFO, "[TEMP] CHG:%s%d.%d BAT:%s%d.%d INV:%s%d.%dC",
+            logger_out(LOG_INFO, "[TEMP] CHG:%s%d.%d BAT:%s%d.%d INV:%s%d.%dC",
                          t->chg_temp < 0 ? "-" : "", chg_abs / 10, chg_abs % 10,
                          t->bat_temp < 0 ? "-" : "", bat_abs / 10, bat_abs % 10,
                          t->inv_temp < 0 ? "-" : "", inv_abs / 10, inv_abs % 10);

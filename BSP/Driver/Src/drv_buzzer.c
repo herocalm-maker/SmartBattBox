@@ -41,7 +41,7 @@ void drv_buzzer_init(void)
     s_tick_cnt = 0;
     BEEP_OFF();
     drv_buzzer_short_sound(1);
-    logger_print(LOG_INFO, "drv_buzzer: init");
+    logger_out(LOG_INFO, "drv_buzzer: init");
 }
 
 /*********************************************************************

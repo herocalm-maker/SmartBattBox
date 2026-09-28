@@ -34,7 +34,7 @@ void drv_relay_init(void)
 
     s_relay_state = 0;
     drv_relay_all_off();
-    logger_print(LOG_INFO, "drv_relaysw: init (6ch: 5 relay + 1 opto)");
+    logger_out(LOG_INFO, "drv_relaysw: init (6ch: 5 relay + 1 opto)");
 }
 
 /*********************************************************************
