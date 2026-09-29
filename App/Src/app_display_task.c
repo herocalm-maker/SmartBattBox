@@ -82,10 +82,22 @@ static void display_refresh(void)
     uint8_t ferr = app_faultcode_get_error();
     uint8_t falm = app_faultcode_get_alarm();
     char txt[40];
-    if      (ferr && falm) snprintf(txt, sizeof txt, "ERROR: %02u, ALARM: %02u", ferr, falm);
-    else if (ferr)         snprintf(txt, sizeof txt, "ERROR: %02u", ferr);
-    else if (falm)         snprintf(txt, sizeof txt, "ALARM: %02u", falm);
-    else                   snprintf(txt, sizeof txt, "%s", bat ? "" : "BAT DATA INVALID");
+    if (ferr && falm)
+    {
+        snprintf(txt, sizeof txt, "ERROR: %02u, ALARM: %02u", ferr, falm);
+    }
+    else if (ferr)
+    {
+        snprintf(txt, sizeof txt, "ERROR: %02u", ferr);
+    }
+    else if (falm)
+    {
+        snprintf(txt, sizeof txt, "ALARM: %02u", falm);
+    }
+    else
+    {
+        snprintf(txt, sizeof txt, "%s", bat ? "" : "BAT DATA INVALID");
+    }
     drv_dwin_set_text(VP_TEXT_ERR, txt);
 
     /* 温度高图标: 任一过温告警 -> 0x2017(VP_ICON_PWR) 显示图标8 */
