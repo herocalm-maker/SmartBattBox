@@ -44,6 +44,12 @@ static const struct { uint32_t bit; uint8_t code; } s_alm_tab[] = {
 };
 #define ALM_TAB_N (sizeof(s_alm_tab) / sizeof(s_alm_tab[0]))
 
+/**
+ * @brief  读取当前最高优先级 ERROR 故障码.
+ * @note   从统一告警位图按 ERROR 映射表 (s_err_tab) 取首个命中项, 表序即优先级;
+ *         与 ALARM 独立编号, 供显示任务拼接 "ERROR: %02u" 文本.
+ * @return 故障码 (1..7); 0 = 当前无 ERROR 置位.
+ */
 uint8_t app_faultcode_get_error(void)
 {
     uint32_t a = app_protect_alarm_get() & FAULT_ERR_MASK;
@@ -55,6 +61,12 @@ uint8_t app_faultcode_get_error(void)
     return 0;
 }
 
+/**
+ * @brief  读取当前最高优先级 ALARM 报警码.
+ * @note   从统一告警位图按 ALARM 映射表 (s_alm_tab) 取首个命中项, 表序即优先级;
+ *         提示性告警, 不触发保护停机, 供显示任务拼接 "ALARM: %02u" 文本.
+ * @return 报警码 (1..4); 0 = 当前无 ALARM 置位.
+ */
 uint8_t app_faultcode_get_alarm(void)
 {
     uint32_t a = app_protect_alarm_get() & FAULT_ALM_MASK;
@@ -66,6 +78,12 @@ uint8_t app_faultcode_get_alarm(void)
     return 0;
 }
 
+/**
+ * @brief  温度高判定.
+ * @note   任一过温告警 (电池 BAT_OTP / 逆变 INV_OTP / 充电 CHG_OTP) 即触发;
+ *         显示任务据此将 0x2017 (VP_ICON_PWR) 图标置为 8.
+ * @return true = 任一 OTP 告警置位; false = 无过温.
+ */
 bool app_faultcode_temp_high(void)
 {
     uint32_t a = app_protect_alarm_get();
