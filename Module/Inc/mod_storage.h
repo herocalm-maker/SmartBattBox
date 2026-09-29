@@ -1,8 +1,8 @@
 /**
  * @file    mod_storage.h
-  * @brief   存储模块 (Module 层)
+ * @brief   存储模块 (Module 层)
  *
-  *
+ * W25Q128 电池学习记录与参数备份的统一访问接口.
  */
 #ifndef __MOD_STORAGE_H__
 #define __MOD_STORAGE_H__
@@ -31,9 +31,10 @@ typedef enum {
  *====================================================================*/
 #define STORAGE_SEC_BATTERY_START 9u /* 0x009000..0x00AFFF, 2 x 4KiB */
 #define STORAGE_SEC_BATTERY_COUNT 2u
-int mod_storage_battery_read(void *,uint32_t,uint8_t *,size_t);
-int mod_storage_battery_program(void *,uint32_t,const uint8_t *,size_t);
-int mod_storage_battery_erase(void *,unsigned);
+/* 电池学习记录 (扇区 9/10, 双扇区双缓冲): 读写/擦除接口 */
+extern int mod_storage_battery_read(void *c, uint32_t o, uint8_t *b, size_t n);
+extern int mod_storage_battery_program(void *c, uint32_t o, const uint8_t *b, size_t n);
+extern int mod_storage_battery_erase(void *c, unsigned sector);
 
 /* 参数备份 (扇区 0, 4KB): 通用字节接口, 由 project_param 调用 */
 extern int mod_storage_param_backup_write(const uint8_t *data, size_t len);
