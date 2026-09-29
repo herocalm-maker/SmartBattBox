@@ -8,12 +8,6 @@
 #include "drv_relaysw.h"
 #include "drv_fan.h"
 
-bool mod_acswitch_init(void)
-{
-    /* 驱动初始化已在 bsp_boardio_init 完成 */
-    return true;
-}
-
 bool mod_acswitch_relay_on(relay_id_enum id)
 {
     return drv_relay_on(id);

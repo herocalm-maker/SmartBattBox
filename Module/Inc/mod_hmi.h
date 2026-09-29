@@ -17,7 +17,6 @@ extern "C" {
 #include <stdint.h>
 #include "drv_led.h"   /* led_id_enum */
 
-void mod_hmi_init(void);
 void mod_hmi_alarm(bool on);      /* ALM 报警灯亮/灭 */
 void mod_hmi_buzz(uint8_t times); /* 蜂鸣短响 N 次 */
 void mod_hmi_buzz_reject(void);   /* 拒绝提示音 */

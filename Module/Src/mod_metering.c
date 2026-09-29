@@ -312,3 +312,55 @@ hlw8110_t *mod_metering_get_hlw(uint8_t idx)
     return s_ch[idx].hlw;
 }
 
+/*====================================================================
+ * 板级采样配置 (原 App 层注入逻辑下沉, 收敛驱动直连)
+ *====================================================================*/
+static const hlw8110_hwcfg_t s_metering_hwcfg = {
+    .k1      = HLW8110_K1,          /* 电流通道校准系数 */
+    .k2      = HLW8110_K2,          /* 电压通道校准系数 */
+    .syscon  = HLW8110_SYSCON_VALUE,/* 采样通道配置 (PGA_A=1) */
+    .emucon  = HLW8110_EMUCON_VALUE,
+    .emucon2 = HLW8110_EMUCON2_VALUE,
+};
+
+/** @brief  注入板级采样配置到双路 HLW8110 (需在 init 完成后调用) */
+void mod_metering_apply_board_config(void)
+{
+    for (uint8_t i = 0; i < METERING_IDX_CNT; i++)
+    {
+        hlw8110_t *hlw = mod_metering_get_hlw(i);
+        if (hlw)
+            drv_hlw8110_set_hwcfg(hlw, &s_metering_hwcfg);
+    }
+}
+
+/** @brief  回读校验 SYSCON (PGA_A=1), 打印 K1/K2 与校验结果 */
+void mod_metering_verify_syscon(void)
+{
+    static const char *s_ch_name[METERING_IDX_CNT] = { "in", "out" };
+
+    for (uint8_t i = 0; i < METERING_IDX_CNT; i++)
+    {
+        hlw8110_t *hlw = mod_metering_get_hlw(i);
+        if (hlw == NULL)
+            continue;
+
+        uint32_t syscon = 0;
+        if (drv_hlw8110_read_reg(hlw, HLW8110_REG_SYSCON, 2, &syscon))
+        {
+            int pga_ok   = ((syscon & 0x07u) == 0u);          /* PGAIA[2:0]==0 → PGA_A=1 */
+            int k1_i     = (int)(s_metering_hwcfg.k1);
+            int k1_d     = (int)(s_metering_hwcfg.k1 * 1000.0f) % 1000;
+            int k2_i     = (int)(s_metering_hwcfg.k2);
+            int k2_d     = (int)(s_metering_hwcfg.k2 * 1000.0f) % 1000;
+            log_print("Metering: ch[%s] SYSCON=0x%04X PGA_A=1 %s (K1=%d.%03d K2=%d.%03d)",
+                      s_ch_name[i], (unsigned)syscon, pga_ok ? "OK" : "MISMATCH",
+                      k1_i, k1_d, k2_i, k2_d);
+        }
+        else
+        {
+            log_print("Metering: ch[%s] SYSCON read fail", s_ch_name[i]);
+        }
+    }
+}
+

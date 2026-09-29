@@ -22,8 +22,6 @@ extern "C" {
 #include "drv_fan.h"
 #include "main.h"   /* energy_path_t */
 
-bool mod_acswitch_init(void);
-
 /* ---- 继电器 ---- */
 bool mod_acswitch_relay_on(relay_id_enum id);
 bool mod_acswitch_relay_off(relay_id_enum id);

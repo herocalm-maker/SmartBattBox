@@ -52,8 +52,7 @@ typedef enum {
 
 extern bool bsp_adc_init(void);
 extern bool bsp_adc_deinit(void);
-extern void bsp_adc_dma_enable(uint16_t ndtr);  /* 兼容保留: DMA_CIRCULAR 连续采集已由 bsp_adc_init 启动 */
-extern uint16_t bsp_adc_get_raw(bsp_adc_ch_enum ch);
+extern bool bsp_adc_get_raw(bsp_adc_ch_enum ch);
 extern uint16_t bsp_adc_get_raw_average(bsp_adc_ch_enum ch);
 extern uint16_t bsp_adc_get_mv(bsp_adc_ch_enum ch);
 extern uint16_t bsp_adc_get_mv_average(bsp_adc_ch_enum ch);

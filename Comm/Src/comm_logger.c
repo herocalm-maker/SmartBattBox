@@ -42,19 +42,6 @@ static log_level_enum s_log_level = LOG_INFO;
 
 
 /*********************************************************************
- * @fn      Uart1_Recv_CallBack
- * @brief   调试串口接收数据回调函数
- * @param   pdata   数据指针
- * @param   nbyte   数据长度
- * @return  bool    true=成功
- ********************************************************************/
-static void Uart1_Recv_CallBack(bsp_uart_port_t port, uint8_t *buf, uint16_t len)
-{
-
-}
-
-
-/*********************************************************************
  * @fn      Debug_Uart_Send
  * @brief   调试串口发送数据
  * @param   pdata   数据指针
@@ -123,7 +110,7 @@ void logger_init(uint32_t baudrate)
   bsp_uart_config_t uart1_cfg = {0};
 
   uart1_cfg.baudrate    = baudrate;
-  uart1_cfg.rx_cb       = Uart1_Recv_CallBack;
+  uart1_cfg.rx_cb       = NULL;
   uart1_cfg.rx_buf      = s_uart1_rx_buf;
   uart1_cfg.rx_buf_size = sizeof(s_uart1_rx_buf);
   bsp_uart_init(BSP_UART_1, &uart1_cfg);

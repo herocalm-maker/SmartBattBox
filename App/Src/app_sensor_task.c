@@ -24,7 +24,6 @@
 #include "mod_temp.h"
 
 /* BSP 层 */
-#include "bsp_adc.h"
 #include "bsp_wdg.h"
 
 /* Comm */
@@ -89,8 +88,6 @@ static void sensor_tim_process(void)
  */
 void SensorTask(void *argument)
 {
-    uint32_t uwRet = 0;
-    ucMESSAGE_t Msg = {0};
     uint8_t temp_cnt = 0;
 
     /* 初始化电池采集模块。 */
@@ -100,18 +97,7 @@ void SensorTask(void *argument)
 
     for (;;)
     {
-        uwRet = xQueueReceive(xSensorQueueHandle, &Msg, pdMS_TO_TICKS(SENSOR_TICK_MS));
-        if (uwRet == pdPASS)
-        {
-            switch (Msg.MsgID)
-            {
-                case 0:
-                    break;
-
-                default:
-                    break;
-            }
-        }
+        osDelay(SENSOR_TICK_MS);   /* 周期轮询 (空转队列已移除) */
 
         /* 1. 电池电量信息采集计量  */
         mod_battery_handler();

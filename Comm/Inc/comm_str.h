@@ -37,6 +37,16 @@ extern bool comm_str_extract(const uint8_t *buf, uint16_t len,const char *prefix
  *--------------------------------------------------------------*/
 extern bool     comm_str_startswith(const uint8_t *buf, uint16_t len, const char *prefix);
 
+/*--------------------------------------------------------------
+ * comm_str_frac: 取浮点值绝对值小数部分 (打印整数拆分用)
+ *   v       - 浮点值 (正负均可)
+ *   scale   - 倍率: 10=1位小数, 100=2位, 1000=3位
+ *   return  - 小数部分 (0..scale-1), 恒非负
+ *   背景: 链接参数 nano.specs 无 %f 支持, 打印时整数部分 (int)v
+ *         与小数部分 comm_str_frac(v,scale) 分开输出, 各调用方共用避免重复实现
+ *--------------------------------------------------------------*/
+extern uint16_t comm_str_frac(float v, uint16_t scale);
+
 #ifdef __cplusplus
 }
 #endif

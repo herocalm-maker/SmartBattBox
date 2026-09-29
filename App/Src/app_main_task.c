@@ -549,6 +549,18 @@ static void handle_onoff_key(void)
 }
 
 /**
+ * @brief 解析 ACOUT 请求的目标通路 (依赖 AC 输入状态与充电保持意愿)。
+ */
+static energy_path_t resolve_target(bool charge, ac_input_state_t ac, bool want_charge)
+{
+    if (charge)
+        return PATH_CHARGE;
+    if (ac == AC_INPUT_PRESENT)
+        return want_charge ? PATH_CHARGE_BYPASS : PATH_BYPASS;
+    return PATH_INVERT;
+}
+
+/**
  * @brief 处理ACIN/ACOUT切换请求，支持启动过程中取消。
  * @param charge true表示ACIN；false表示ACOUT。
  */
@@ -566,7 +578,13 @@ static void handle_path_key(bool charge)
     {
         bool keep_charge = !charge && s_charge_requested && ac == AC_INPUT_PRESENT;
         bool keep_output = charge && s_output_requested && ac == AC_INPUT_PRESENT;
-        energy_path_t target = keep_charge ? PATH_CHARGE : (keep_output ? PATH_BYPASS : PATH_NONE);
+        energy_path_t target;
+        if (keep_charge)
+            target = PATH_CHARGE;
+        else if (keep_output)
+            target = PATH_BYPASS;
+        else
+            target = PATH_NONE;
         if (path_request(target, ac))
         {
             s_charge_requested = keep_charge;
@@ -590,10 +608,7 @@ static void handle_path_key(bool charge)
     }
     /* ACIN ON retains the original charge-only policy; ACOUT ON preserves charge. */
     bool want_charge = charge || (ac == AC_INPUT_PRESENT && s_charge_requested);
-    energy_path_t target =
-        charge ? PATH_CHARGE
-               : (ac == AC_INPUT_PRESENT ? (want_charge ? PATH_CHARGE_BYPASS : PATH_BYPASS)
-                                         : PATH_INVERT);
+    energy_path_t target = resolve_target(charge, ac, want_charge);
     if (path_request(target, ac))
     {
         s_charge_requested = want_charge;

@@ -73,3 +73,18 @@ bool comm_str_startswith(const uint8_t *buf, uint16_t len, const char *prefix)
     	return false;
     return memcmp(buf, prefix, plen) == 0;
 }
+
+/**
+ * @brief  取浮点值绝对值小数部分 (打印浮点整数拆分用)
+ * @note   nano.specs 无 %f, 打印浮点统一拆成 "整数部分 + 小数部分"。
+ *         小数部分 = round(|v| * scale) % scale, 恒非负, 避免负数取模出现负号。
+ * @param  v      浮点值 (正负均可)
+ * @param  scale  倍率: 10=1位小数, 100=2位, 1000=3位
+ * @return 小数部分 (0 .. scale-1)
+ */
+uint16_t comm_str_frac(float v, uint16_t scale)
+{
+    int32_t n = (int32_t)(v * (float)scale + 0.5f);
+    if (n < 0) n = -n;
+    return (uint16_t)(n % (int32_t)scale);
+}

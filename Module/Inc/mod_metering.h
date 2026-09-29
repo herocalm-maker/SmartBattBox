@@ -98,6 +98,10 @@ ac_input_snapshot_t mod_metering_get_ac_input(void);
  */
 hlw8110_t *mod_metering_get_hlw(uint8_t idx);
 
+/* 板级采样配置注入 + 关键寄存器校验 (收敛 App 对 drv_hlw8110 的直连) */
+void mod_metering_apply_board_config(void);
+void mod_metering_verify_syscon(void);
+
 #ifdef __cplusplus
 }
 #endif

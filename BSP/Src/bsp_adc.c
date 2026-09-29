@@ -195,19 +195,6 @@ bool bsp_adc_deinit(void)
 }
 
 /*********************************************************************
- * @fn      bsp_adc_dma_enable
- * @brief   使能 ADC DMA 传输 (兼容保留)
- * @param   ndtr: 未使用
- * @return  无
- * @note    DMA_CIRCULAR + 连续模式下, DMA 由 bsp_adc_init 启动并持续刷新,
- *          无需手动重启; 保留本接口为幂等兼容调用.
-********************************************************************/
-void bsp_adc_dma_enable(uint16_t ndtr)
-{
-    (void)ndtr;
-}
-
-/*********************************************************************
  * @fn      bsp_adc_get_raw
  * @brief   读取指定通道原始值 (DMA 环形缓冲区当前帧)
  * @param   ch  通道 (BSP_ADC_CH_*)

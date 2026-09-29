@@ -15,6 +15,7 @@
 #include "mod_battery.h"
 #include "mod_metering.h"
 #include "comm_logger.h"
+#include "comm_str.h"
 #include "bsp_wdg.h"
 #include "bsp_io.h"
 #include "Board.h"
@@ -54,8 +55,8 @@ void app_ble_report_status(void)
         len += snprintf(s_json_buf + len, sizeof(s_json_buf) - len, ",");
         len += snprintf(s_json_buf + len, sizeof(s_json_buf) - len,
                         "\"vin\":%d.%u,\"vout\":%d.%u,\"pin\":%d,\"pout\":%d", (int)m->vin_v,
-                        (unsigned)((m->vin_v - (int)m->vin_v) * 10), (int)m->vout_v,
-                        (unsigned)((m->vout_v - (int)m->vout_v) * 10), (int)m->vin_p_w,
+                        comm_str_frac(m->vin_v, 10), (int)m->vout_v,
+                        comm_str_frac(m->vout_v, 10), (int)m->vin_p_w,
                         (int)m->vout_p_w);
     }
     len += snprintf(s_json_buf + len, sizeof(s_json_buf) - len, ",\"state\":%d,\"alm\":%lu}",

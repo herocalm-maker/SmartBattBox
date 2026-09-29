@@ -8,12 +8,6 @@
 #include "drv_buzzer.h"
 #include "drv_led.h"
 
-void mod_hmi_init(void)
-{
-    /* 上电熄灭 ALM 灯; 驱动初始化已在 bsp_boardio_init 完成 */
-    drv_led_off(LED_ALM);
-}
-
 void mod_hmi_alarm(bool on)
 {
     if (on)

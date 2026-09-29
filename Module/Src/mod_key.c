@@ -84,15 +84,12 @@ static uint8_t _read_all_keys(void)
 
 bool mod_key_init(void)
 {
-    /* GPIO 初始化 (纯输入, EXTI 未使用) */
-    bsp_gpio_init(BOARD_ONOFF_KEY_PORT, BOARD_ONOFF_KEY_PIN,
-                  GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
-    bsp_gpio_init(BOARD_ACIN_KEY_PORT, BOARD_ACIN_KEY_PIN,
-                  GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
-    bsp_gpio_init(BOARD_ACOUT_KEY_PORT, BOARD_ACOUT_KEY_PIN,
-                  GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
-    bsp_gpio_init(BOARD_K1_PORT, BOARD_K1_PIN,
-                  GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
+    /* GPIO 初始化 (纯输入, EXTI 未使用) — 由引脚映射表循环收敛 */
+    for (int i = 0; i < KEY_IDX_CNT; i++)
+    {
+        bsp_gpio_init(s_pin_map[i].port, s_pin_map[i].pin,
+                      GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
+    }
 
     /* 清零状态 */
     memset((void *)&s_key, 0, sizeof(s_key));
