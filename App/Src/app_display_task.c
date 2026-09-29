@@ -20,7 +20,7 @@
 /* App layer */
 #include "app_display_task.h"
 #include "app_main_task.h"
-#include "app_faultcode.h"
+#include "app_alarm.h"
 
 /* Module 层 */
 #include "mod_battery.h"
@@ -79,8 +79,8 @@ static void display_refresh(void)
     BATT_INFO_T *bat = battery_get_snapshot(&snapshot) ? &snapshot : NULL;
     METER_INFO_T *m = metering_get_info();
     /* 故障码: ERROR/ALARM 独立编码 (ERROR: 03, ALARM: 01) */
-    uint8_t ferr = app_faultcode_get_error();
-    uint8_t falm = app_faultcode_get_alarm();
+    uint8_t ferr = app_alarm_error();
+    uint8_t falm = app_alarm_alarm();
     char txt[40];
     if (ferr && falm)
     {
@@ -101,7 +101,7 @@ static void display_refresh(void)
     drv_dwin_set_text(VP_TEXT_ERR, txt);
 
     /* 温度高图标: 任一过温告警 -> 0x2017(VP_ICON_PWR) 显示图标8 */
-    drv_dwin_set_value(VP_ICON_PWR, app_faultcode_temp_high() ? 8 : ICON_OFF);
+    drv_dwin_set_value(VP_ICON_PWR, app_alarm_temp_high() ? 8 : ICON_OFF);
     drv_dwin_set_value(VP_BATTERY, (int16_t)(bat ? bat->soc : 0));
     drv_dwin_set_value(VP_INPUT_POWER, (int16_t)(m ? m->vin_p_w : 0));
     drv_dwin_set_value(VP_OUTPUT_POWER, (int16_t)(m ? m->vout_p_w : 0));

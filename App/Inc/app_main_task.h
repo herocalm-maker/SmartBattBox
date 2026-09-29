@@ -7,7 +7,7 @@
  *   - AC 通路管理 (继电器安全切换)
  *   - 热管理 (风扇 + 温度报警)
  *   - Flash 参数 (project_param.h) 管理
- *   - 对外提供: state_get(); 告警位图读取见 app_protect.h (app_protect_alarm_get)
+ *   - 对外提供: state_get(); 告警位图读取见 app_alarm.h (app_alarm_get)
  */
 #ifndef __APP_MAIN_TASK_H__
 #define __APP_MAIN_TASK_H__

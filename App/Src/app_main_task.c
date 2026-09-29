@@ -22,7 +22,7 @@
 #include "Board.h"
 #include "mod_acswitch.h"
 #include "mod_hmi.h"
-#include "app_protect.h"
+#include "app_alarm.h"
 
 
 /* Bench-validation defaults, not verified contact/charger/inverter timings. */
@@ -159,12 +159,12 @@ static void power_abort(void)
  */
 static void enter_fault(uint32_t alarm)
 {
-    app_protect_merge(alarm);
+    app_alarm_merge(alarm);
     power_abort();
     state_set(SYS_STATUS_FAULT);
     mod_hmi_alarm(true);
     mod_hmi_buzz(3);
-    logger_out(LOG_ERROR, "FAULT: alarm=0x%lX", (unsigned long)app_protect_alarm_get());
+    logger_out(LOG_ERROR, "FAULT: alarm=0x%lX", (unsigned long)app_alarm_get());
 }
 
 /**
@@ -309,7 +309,7 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
  */
 static void input_abort(void)
 {
-    app_protect_merge(SYS_ALARM_AC_INPUT);
+    app_alarm_merge(SYS_ALARM_AC_INPUT);
     power_abort();
     mod_hmi_buzz(2);
     logger_out(LOG_WARN, "AC input invalid/unknown: routes off; ACOUT required to restart");
@@ -613,7 +613,7 @@ static void handle_path_key(bool charge)
     {
         s_charge_requested = want_charge;
         s_output_requested = !charge;
-        app_protect_unmerge(SYS_ALARM_AC_INPUT);
+        app_alarm_unmerge(SYS_ALARM_AC_INPUT);
         mod_hmi_buzz(1);
     }
 }
