@@ -45,30 +45,60 @@ void drv_relay_init(void)
 ********************************************************************/
 bool drv_relay_on(relay_id_enum id)
 {
-    if ((unsigned)id >= RELAY_CNT) {
+    if ((unsigned)id >= RELAY_CNT)
+    {
         return false;
     }
     /* Only AppMainTask sequences these relays; command bits are not feedback. */
     if ((id == RELAY_AC_CTRL || id == RELAY_CHG_IN || id == RELAY_CHG_OUT) &&
         (drv_relay_is_on(RELAY_INV_OUT) || drv_relay_is_on(RELAY_INV_PRO) ||
-         drv_relay_is_on(RELAY_INV_IN))) return false;
+         drv_relay_is_on(RELAY_INV_IN)))
+    {
+        return false;
+    }
     if ((id == RELAY_INV_OUT || id == RELAY_INV_PRO || id == RELAY_INV_IN) &&
         (drv_relay_is_on(RELAY_AC_CTRL) || drv_relay_is_on(RELAY_CHG_IN) ||
-         drv_relay_is_on(RELAY_CHG_OUT))) return false;
+         drv_relay_is_on(RELAY_CHG_OUT)))
+    {
+        return false;
+    }
     /* DC supply is commanded PD4 then PD7; both remain on during inversion.
      * AppMainTask owns the stabilization delay before PD0. */
-    if (id == RELAY_INV_IN && !drv_relay_is_on(RELAY_INV_PRO)) return false;
+    if (id == RELAY_INV_IN && !drv_relay_is_on(RELAY_INV_PRO))
+    {
+        return false;
+    }
     if (id == RELAY_INV_OUT && (!drv_relay_is_on(RELAY_INV_IN) ||
-                               !drv_relay_is_on(RELAY_INV_PRO))) return false;
-    if (id == RELAY_CHG_OUT && !drv_relay_is_on(RELAY_CHG_IN)) return false;
-    switch (id) {
-        case RELAY_CHG_IN:  bsp_gpio_write(BOARD_CHG_IN_PORT, BOARD_CHG_IN_PIN, GPIO_PIN_SET);  break;
-        case RELAY_CHG_OUT: bsp_gpio_write(BOARD_CHG_OUT_PORT, BOARD_CHG_OUT_PIN, GPIO_PIN_SET); break;
-        case RELAY_AC_CTRL: bsp_gpio_write(BOARD_AC_CTRL_PORT, BOARD_AC_CTRL_PIN, GPIO_PIN_SET); break;
-        case RELAY_INV_OUT: bsp_gpio_write(BOARD_INV_OUT_PORT, BOARD_INV_OUT_PIN, GPIO_PIN_SET); break;
-        case RELAY_INV_PRO: bsp_gpio_write(BOARD_INV_PRO_PORT, BOARD_INV_PRO_PIN, GPIO_PIN_SET); break;
-        case RELAY_INV_IN:  bsp_gpio_write(BOARD_INV_IN_PORT, BOARD_INV_IN_PIN, GPIO_PIN_SET);   break;
-        default: return false;
+                               !drv_relay_is_on(RELAY_INV_PRO)))
+    {
+        return false;
+    }
+    if (id == RELAY_CHG_OUT && !drv_relay_is_on(RELAY_CHG_IN))
+    {
+        return false;
+    }
+    switch (id)
+    {
+        case RELAY_CHG_IN:
+            bsp_gpio_write(BOARD_CHG_IN_PORT, BOARD_CHG_IN_PIN, GPIO_PIN_SET);
+            break;
+        case RELAY_CHG_OUT:
+            bsp_gpio_write(BOARD_CHG_OUT_PORT, BOARD_CHG_OUT_PIN, GPIO_PIN_SET);
+            break;
+        case RELAY_AC_CTRL:
+            bsp_gpio_write(BOARD_AC_CTRL_PORT, BOARD_AC_CTRL_PIN, GPIO_PIN_SET);
+            break;
+        case RELAY_INV_OUT:
+            bsp_gpio_write(BOARD_INV_OUT_PORT, BOARD_INV_OUT_PIN, GPIO_PIN_SET);
+            break;
+        case RELAY_INV_PRO:
+            bsp_gpio_write(BOARD_INV_PRO_PORT, BOARD_INV_PRO_PIN, GPIO_PIN_SET);
+            break;
+        case RELAY_INV_IN:
+            bsp_gpio_write(BOARD_INV_IN_PORT, BOARD_INV_IN_PIN, GPIO_PIN_SET);
+            break;
+        default:
+            return false;
     }
     s_relay_state |= (1u << id);
     return true;
@@ -82,17 +112,32 @@ bool drv_relay_on(relay_id_enum id)
 ********************************************************************/
 bool drv_relay_off(relay_id_enum id)
 {
-    if ((unsigned)id >= RELAY_CNT) {
+    if ((unsigned)id >= RELAY_CNT)
+    {
         return false;
     }
-    switch (id) {
-        case RELAY_CHG_IN:  bsp_gpio_write(BOARD_CHG_IN_PORT, BOARD_CHG_IN_PIN, GPIO_PIN_RESET);  break;
-        case RELAY_CHG_OUT: bsp_gpio_write(BOARD_CHG_OUT_PORT, BOARD_CHG_OUT_PIN, GPIO_PIN_RESET); break;
-        case RELAY_AC_CTRL: bsp_gpio_write(BOARD_AC_CTRL_PORT, BOARD_AC_CTRL_PIN, GPIO_PIN_RESET); break;
-        case RELAY_INV_OUT: bsp_gpio_write(BOARD_INV_OUT_PORT, BOARD_INV_OUT_PIN, GPIO_PIN_RESET); break;
-        case RELAY_INV_PRO: bsp_gpio_write(BOARD_INV_PRO_PORT, BOARD_INV_PRO_PIN, GPIO_PIN_RESET); break;
-        case RELAY_INV_IN:  bsp_gpio_write(BOARD_INV_IN_PORT, BOARD_INV_IN_PIN, GPIO_PIN_RESET);   break;
-        default: return false;
+    switch (id)
+    {
+        case RELAY_CHG_IN:
+            bsp_gpio_write(BOARD_CHG_IN_PORT, BOARD_CHG_IN_PIN, GPIO_PIN_RESET);
+            break;
+        case RELAY_CHG_OUT:
+            bsp_gpio_write(BOARD_CHG_OUT_PORT, BOARD_CHG_OUT_PIN, GPIO_PIN_RESET);
+            break;
+        case RELAY_AC_CTRL:
+            bsp_gpio_write(BOARD_AC_CTRL_PORT, BOARD_AC_CTRL_PIN, GPIO_PIN_RESET);
+            break;
+        case RELAY_INV_OUT:
+            bsp_gpio_write(BOARD_INV_OUT_PORT, BOARD_INV_OUT_PIN, GPIO_PIN_RESET);
+            break;
+        case RELAY_INV_PRO:
+            bsp_gpio_write(BOARD_INV_PRO_PORT, BOARD_INV_PRO_PIN, GPIO_PIN_RESET);
+            break;
+        case RELAY_INV_IN:
+            bsp_gpio_write(BOARD_INV_IN_PORT, BOARD_INV_IN_PIN, GPIO_PIN_RESET);
+            break;
+        default:
+            return false;
     }
     s_relay_state &= ~(1u << id);
     return true;
@@ -106,7 +151,8 @@ bool drv_relay_off(relay_id_enum id)
 ********************************************************************/
 bool drv_relay_is_on(relay_id_enum id)
 {
-    if ((unsigned)id >= RELAY_CNT) {
+    if ((unsigned)id >= RELAY_CNT)
+    {
         return false;
     }
     return (s_relay_state & (1u << id)) != 0;

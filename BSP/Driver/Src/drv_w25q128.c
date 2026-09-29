@@ -18,6 +18,9 @@
 #include "Board.h"
 #include "cmsis_os2.h"
 
+/* SPI 故障标记: 首次 xchg 失败置位, 后续操作直接失败 (避免无效重试) */
+static bool spi_failed;
+
 
 
 
@@ -51,12 +54,17 @@ static void _cs_high(void)
  * @param   tx  发送字节
  * @return  uint8_t 接收字节
 ********************************************************************/
-static bool spi_failed;
 static uint8_t _spi_xchg(uint8_t tx)
 {
-    uint8_t rx=0xFF;
-    if(spi_failed) return rx;
-    if(!bsp_spi_xchg_checked(BSP_SPI_2,tx,&rx)) spi_failed=true;
+    uint8_t rx = 0xFF;
+    if (spi_failed)
+    {
+        return rx;
+    }
+    if (!bsp_spi_xchg_checked(BSP_SPI_2, tx, &rx))
+    {
+        spi_failed = true;
+    }
     return rx;
 }
 
@@ -125,7 +133,7 @@ uint32_t drv_w25q128_read_id(void)
     id |= ((uint32_t)_spi_xchg(0x00)) << 8;
     id |=  (uint32_t)_spi_xchg(0x00);
     _cs_high();
-    return spi_failed?0:id;
+    return spi_failed ? 0 : id;
 }
 
 /*********************************************************************
@@ -139,13 +147,22 @@ bool drv_w25q128_wait_busy(uint32_t timeout_ms)
     uint32_t tick = HAL_GetTick();
     uint8_t sts;
     do {
-        if(spi_failed) return false;
-        if(osKernelGetState()==osKernelRunning) osDelay(1);
+        if (spi_failed)
+        {
+            return false;
+        }
+        if (osKernelGetState() == osKernelRunning)
+        {
+            osDelay(1);
+        }
         _cs_low();
         _spi_xchg(W25_CMD_READ_STATUS);
         sts = _spi_xchg(0x00);
         _cs_high();
-        if(spi_failed) return false;
+        if (spi_failed)
+        {
+            return false;
+        }
         if ((sts & 0x01) == 0) {
             return true;
         }
@@ -164,7 +181,8 @@ bool drv_w25q128_wait_busy(uint32_t timeout_ms)
 bool drv_w25q128_read(uint32_t addr, uint8_t *buf, uint32_t len)
 {
     spi_failed=false;
-    if (buf == NULL || addr > W25Q128_SIZE_BYTES || len > W25Q128_SIZE_BYTES-addr) {
+    if (buf == NULL || addr > W25Q128_SIZE_BYTES || len > W25Q128_SIZE_BYTES-addr)
+    {
         return false;
     }
     _cs_low();
@@ -186,7 +204,8 @@ bool drv_w25q128_read(uint32_t addr, uint8_t *buf, uint32_t len)
 bool drv_w25q128_erase_sector(uint32_t sec_idx)
 {
     spi_failed=false;
-    if (sec_idx >= W25Q128_SECTOR_COUNT) {
+    if (sec_idx >= W25Q128_SECTOR_COUNT)
+    {
         return false;
     }
     uint32_t addr = sec_idx * W25Q128_SECTOR_SIZE;
@@ -211,7 +230,8 @@ bool drv_w25q128_erase_sector(uint32_t sec_idx)
 bool drv_w25q128_write(uint32_t addr, const uint8_t *buf, uint32_t len)
 {
     spi_failed=false;
-    if (buf == NULL || addr > W25Q128_SIZE_BYTES || len > W25Q128_SIZE_BYTES-addr) {
+    if (buf == NULL || addr > W25Q128_SIZE_BYTES || len > W25Q128_SIZE_BYTES-addr)
+    {
         return false;
     }
     uint32_t remaining = len;
@@ -222,7 +242,8 @@ bool drv_w25q128_write(uint32_t addr, const uint8_t *buf, uint32_t len)
         /* 计算当前页剩余可写空间 */
         uint32_t page_off = cur % W25Q128_PAGE_SIZE;
         uint32_t chunk = W25Q128_PAGE_SIZE - page_off;
-        if (chunk > remaining) {
+        if (chunk > remaining)
+        {
             chunk = remaining;
         }
 

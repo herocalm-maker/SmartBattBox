@@ -34,11 +34,19 @@ void drv_led_init(void)
 ********************************************************************/
 void drv_led_on(led_id_enum id)
 {
-    switch (id) {
-        case LED_SIG:  bsp_gpio_write(BOARD_LED1_PORT, BOARD_LED1_PIN, GPIO_PIN_RESET);        break;
-        case LED_SIG2: bsp_gpio_write(BOARD_LED2_PORT, BOARD_LED2_PIN, GPIO_PIN_RESET);        break;
-        case LED_ALM:  bsp_gpio_write(BOARD_ALARM_LED_PORT, BOARD_ALARM_LED_PIN, GPIO_PIN_SET);   break;
-        default: break;
+    switch (id)
+    {
+        case LED_SIG:
+            bsp_gpio_write(BOARD_LED1_PORT, BOARD_LED1_PIN, GPIO_PIN_RESET);
+            break;
+        case LED_SIG2:
+            bsp_gpio_write(BOARD_LED2_PORT, BOARD_LED2_PIN, GPIO_PIN_RESET);
+            break;
+        case LED_ALM:
+            bsp_gpio_write(BOARD_ALARM_LED_PORT, BOARD_ALARM_LED_PIN, GPIO_PIN_SET);
+            break;
+        default:
+            break;
     }
 }
 
@@ -50,11 +58,19 @@ void drv_led_on(led_id_enum id)
 ********************************************************************/
 void drv_led_off(led_id_enum id)
 {
-    switch (id) {
-        case LED_SIG:  bsp_gpio_write(BOARD_LED1_PORT, BOARD_LED1_PIN, GPIO_PIN_SET);        break;
-        case LED_SIG2: bsp_gpio_write(BOARD_LED2_PORT, BOARD_LED2_PIN, GPIO_PIN_SET);        break;
-        case LED_ALM:  bsp_gpio_write(BOARD_ALARM_LED_PORT, BOARD_ALARM_LED_PIN, GPIO_PIN_RESET);   break;
-        default: break;
+    switch (id)
+    {
+        case LED_SIG:
+            bsp_gpio_write(BOARD_LED1_PORT, BOARD_LED1_PIN, GPIO_PIN_SET);
+            break;
+        case LED_SIG2:
+            bsp_gpio_write(BOARD_LED2_PORT, BOARD_LED2_PIN, GPIO_PIN_SET);
+            break;
+        case LED_ALM:
+            bsp_gpio_write(BOARD_ALARM_LED_PORT, BOARD_ALARM_LED_PIN, GPIO_PIN_RESET);
+            break;
+        default:
+            break;
     }
 }
 

@@ -91,24 +91,28 @@ static int _urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len)
         data_len = data_len * 10u + (uint16_t)(*p - '0');
         p++;
     }
-    if (*p != ',' || data_len == 0) {
+    if (*p != ',' || data_len == 0)
+    {
         return 0;
     }
     p++;
 
     /* 拷贝数据 */
-    if (data_len > BLE_RX_BUF_SIZE) {
+    if (data_len > BLE_RX_BUF_SIZE)
+    {
         data_len = BLE_RX_BUF_SIZE;
     }
     uint16_t remain = (uint16_t)(data + len - p);
-    if (data_len > remain) {
+    if (data_len > remain)
+    {
         data_len = remain;
     }
 
     memcpy(s_ble.rx_buf, p, data_len);
     s_ble.rx_len = data_len;
     s_ble.rx_ready = true;
-    if (s_ble.rx_sem) {
+    if (s_ble.rx_sem)
+    {
         osSemaphoreRelease(s_ble.rx_sem);
     }
     return 1;
@@ -134,17 +138,20 @@ static int _at_oob_match(uint8_t *data, uint16_t len)
 
     uint8_t *p = data;
     uint16_t remain = len;
-    if (len < 2) {
+    if (len < 2)
+    {
         return 0;
     }
 
     while (p - data <= (int32_t)len - 2) {
         for (uint8_t i = 0; i < item_num; i++) {
             const ble_urc_item_t *oob = &s_urc_table[i];
-            if (!oob->cb_func || !oob->prefix) {
+            if (!oob->cb_func || !oob->prefix)
+            {
                 continue;
             }
-            if (!comm_str_startswith(p, remain, oob->prefix)) {
+            if (!comm_str_startswith(p, remain, oob->prefix))
+            {
                 continue;
             }
             matched += oob->cb_func(&s_ble, p, remain);
@@ -153,7 +160,8 @@ static int _at_oob_match(uint8_t *data, uint16_t len)
         }
         /* 跳到下一行 */
         uint8_t *next = (uint8_t *)strstr((const char *)p, "\r\n");
-        if (!next) {
+        if (!next)
+        {
             break;
         }
         p = next + 2;
@@ -191,7 +199,9 @@ static at_result_enum _at_send_command(const char *cmd,
     {
         uint16_t clen = (uint16_t)strlen(cmd);
         if (!bsp_uart_send(BSP_UART_6, (const uint8_t *)cmd, clen, 100u))
+        {
             return AT_RESULT_FAIL;
+        }
     }
 
     if (!prefix && !resp) 
@@ -224,7 +234,9 @@ static at_result_enum _at_send_command(const char *cmd,
         /* 追加到 AT 响应缓冲 */
         uint16_t copy = n;
         if (s_ble.at_resp_len + copy > BLE_AT_RESP_SIZE)
+        {
             copy = BLE_AT_RESP_SIZE - s_ble.at_resp_len;
+        }
         memcpy(&s_ble.at_resp[s_ble.at_resp_len], tmp, copy);
         s_ble.at_resp_len += copy;
 
@@ -244,7 +256,8 @@ static at_result_enum _at_send_command(const char *cmd,
                 if (resp && resp_max > 0) 
                 {
                     uint16_t rlen = s_ble.at_resp_len;
-                    if (rlen > resp_max) {
+                    if (rlen > resp_max)
+                    {
                         rlen = resp_max;
                     }
                     memcpy(resp, s_ble.at_resp, rlen);
@@ -395,11 +408,13 @@ bool drv_pb03f_enter_transparent(void)
  ********************************************************************/
 bool drv_pb03f_exit_transparent(void)
 {
-    if (s_ble.mode != BLE_MODE_TRANSPARENT) {
+    if (s_ble.mode != BLE_MODE_TRANSPARENT)
+    {
         return true;
     }
     osDelay(EXIT_TP_SILENCE_MS);
-    if (!bsp_uart_send(BSP_UART_6, (const uint8_t *)"+++", 3u, 100u)) {
+    if (!bsp_uart_send(BSP_UART_6, (const uint8_t *)"+++", 3u, 100u))
+    {
         return false;
     }
     osDelay(EXIT_TP_SILENCE_MS);
@@ -417,7 +432,8 @@ bool drv_pb03f_exit_transparent(void)
  ********************************************************************/
 bool drv_pb03f_send(const uint8_t *data, uint16_t len)
 {
-    if (!data || len == 0) {
+    if (!data || len == 0)
+    {
         return false;
     }
     return bsp_uart_send(BSP_UART_6, data, len, 100u);
@@ -442,7 +458,8 @@ void drv_pb03f_start_rx(void)
  ********************************************************************/
 uint16_t drv_pb03f_take_rx(uint8_t *out, uint16_t maxlen)
 {
-    if (!out || maxlen == 0) {
+    if (!out || maxlen == 0)
+    {
         return 0;
     }
     return comm_ringbuf_pop(&s_rx_ring, out, maxlen);
@@ -454,7 +471,8 @@ uint16_t drv_pb03f_take_rx(uint8_t *out, uint16_t maxlen)
  ********************************************************************/
 bool drv_pb03f_wait_rx(uint32_t timeout_ms)
 {
-    if (!s_ble.rx_sem) {
+    if (!s_ble.rx_sem)
+    {
         return false;
     }
     return osSemaphoreAcquire(s_ble.rx_sem, timeout_ms) == osOK;
@@ -466,7 +484,8 @@ bool drv_pb03f_wait_rx(uint32_t timeout_ms)
  ********************************************************************/
 bool drv_pb03f_wait_at_resp(uint32_t timeout_ms)
 {
-    if (!s_ble.at_sem) {
+    if (!s_ble.at_sem)
+    {
         return false;
     }
     return osSemaphoreAcquire(s_ble.at_sem, timeout_ms) == osOK;
@@ -484,12 +503,14 @@ bool drv_pb03f_wait_at_resp(uint32_t timeout_ms)
  ********************************************************************/
 void drv_pb03f_on_rx_done(uint16_t len)
 {
-    if (s_ble.mode != BLE_MODE_TRANSPARENT) {
+    if (s_ble.mode != BLE_MODE_TRANSPARENT)
+    {
         drv_pb03f_at_on_rx_event(len);
         return;
     }
     /* 透传模式: 通知消费者从 s_rx_ring 取数据 */
-    if (s_ble.rx_sem) {
+    if (s_ble.rx_sem)
+    {
         osSemaphoreRelease(s_ble.rx_sem);
     }
 }
@@ -501,7 +522,8 @@ void drv_pb03f_on_rx_done(uint16_t len)
 void drv_pb03f_at_on_rx_event(uint16_t len)
 {
     (void)len;
-    if (s_ble.at_sem) {
+    if (s_ble.at_sem)
+    {
         osSemaphoreRelease(s_ble.at_sem);
     }
 }
@@ -517,7 +539,8 @@ void drv_pb03f_at_on_rx_event(uint16_t len)
  ********************************************************************/
 ble_pkt_type_enum drv_pb03f_pkt_type(const uint8_t *buf, uint16_t len)
 {
-    if (!buf || len == 0) {
+    if (!buf || len == 0)
+    {
         return BLE_PKT_NONE;
     }
     return comm_str_find(buf, len, "aliGenie_data") >= 0
@@ -536,32 +559,37 @@ ble_pkt_type_enum drv_pb03f_pkt_type(const uint8_t *buf, uint16_t len)
 uint16_t drv_pb03f_extract_aligenie(const uint8_t *buf, uint16_t len,
                                     char *out, uint16_t maxlen)
 {
-    if (!buf || !out || maxlen == 0) {
+    if (!buf || !out || maxlen == 0)
+    {
         return 0;
     }
 
     int16_t idx = comm_str_find(buf, len, "aliGenie_data");
-    if (idx < 0) {
+    if (idx < 0)
+    {
         return 0;
     }
 
     uint16_t p = (uint16_t)idx + (uint16_t)strlen("aliGenie_data");
     /* 跳过空白和冒号 */
     while (p < len && (buf[p] == ' ' || buf[p] == '\t')) p++;
-    if (p >= len || buf[p] != ':') {
+    if (p >= len || buf[p] != ':')
+    {
         return 0;
     }
     p++;
     while (p < len && (buf[p] == ' ' || buf[p] == '\t')) p++;
     /* 期望 '"' */
-    if (p >= len || buf[p] != '"') {
+    if (p >= len || buf[p] != '"')
+    {
         return 0;
     }
     p++;
 
     uint16_t out_idx = 0;
     while (p < len && buf[p] != '"' && buf[p] != '\r' && buf[p] != '\n') {
-        if (out_idx + 1u >= maxlen) {
+        if (out_idx + 1u >= maxlen)
+        {
             break;
         }
         out[out_idx++] = (char)buf[p++];
@@ -610,11 +638,14 @@ bool drv_pb03f_restore(void)
  ********************************************************************/
 bool drv_pb03f_get_version(char *out, uint16_t maxlen)
 {
-    if (!out || maxlen == 0) {
+    if (!out || maxlen == 0)
+    {
         return false;
     }
     if (_at_send_command("AT+GMR\r\n", "+VERSION:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    {
         return false;
+    }
     return comm_str_extract(s_ble.at_resp, s_ble.at_resp_len, "+VERSION:", out, maxlen);
 }
 
@@ -624,11 +655,14 @@ bool drv_pb03f_get_version(char *out, uint16_t maxlen)
  ********************************************************************/
 bool drv_pb03f_get_name(char *out, uint16_t maxlen)
 {
-    if (!out || maxlen == 0) {
+    if (!out || maxlen == 0)
+    {
         return false;
     }
     if (_at_send_command("AT+NAME?\r\n", "+NAME:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    {
         return false;
+    }
     return comm_str_extract(s_ble.at_resp, s_ble.at_resp_len, "+NAME:", out, maxlen);
 }
 
@@ -638,11 +672,14 @@ bool drv_pb03f_get_name(char *out, uint16_t maxlen)
  ********************************************************************/
 bool drv_pb03f_get_mac(char *out, uint16_t maxlen)
 {
-    if (!out || maxlen < (BLE_MAC_STR_LEN + 1)) {
+    if (!out || maxlen < (BLE_MAC_STR_LEN + 1))
+    {
         return false;
     }
     if (_at_send_command("AT+MAC?\r\n", "+MAC:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    {
         return false;
+    }
     return comm_str_extract(s_ble.at_resp, s_ble.at_resp_len, "+MAC:", out, maxlen);
 }
 
@@ -653,19 +690,26 @@ bool drv_pb03f_get_mac(char *out, uint16_t maxlen)
  ********************************************************************/
 bool drv_pb03f_get_state(ble_state_enum *out)
 {
-    if (!out) {
+    if (!out)
+    {
         return false;
     }
     if (_at_send_command("AT+STATE?\r\n", "+STATE:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    {
         return false;
+    }
     char val[8] = {0};
     if (!comm_str_extract(s_ble.at_resp, s_ble.at_resp_len, "+STATE:", val, sizeof(val) - 1u))
+    {
         return false;
-    if (val[0] == '0') {
+    }
+    if (val[0] == '0')
+    {
         *out = BLE_STATE_DISCONNECTED;
         return true;
     }
-    if (val[0] == '1') {
+    if (val[0] == '1')
+    {
         *out = BLE_STATE_CONNECTED;
         return true;
     }
@@ -682,11 +726,13 @@ bool drv_pb03f_get_state(ble_state_enum *out)
  ********************************************************************/
 bool drv_pb03f_set_name(const char *name)
 {
-    if (!name) {
+    if (!name)
+    {
         return false;
     }
     int n = snprintf(s_ble.cmd_buf, sizeof(s_ble.cmd_buf), "AT+NAME=%s\r\n", name);
-    if (n <= 0 || n >= (int)sizeof(s_ble.cmd_buf)) {
+    if (n <= 0 || n >= (int)sizeof(s_ble.cmd_buf))
+    {
         return false;
     }
     return _at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
@@ -699,7 +745,8 @@ bool drv_pb03f_set_name(const char *name)
 bool drv_pb03f_set_uart_baud(uint32_t baud)
 {
     int n = snprintf(s_ble.cmd_buf, sizeof(s_ble.cmd_buf), "AT+UART=%u\r\n", (unsigned int)baud);
-    if (n <= 0 || n >= (int)sizeof(s_ble.cmd_buf)) {
+    if (n <= 0 || n >= (int)sizeof(s_ble.cmd_buf))
+    {
         return false;
     }
     return _at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
@@ -711,12 +758,14 @@ bool drv_pb03f_set_uart_baud(uint32_t baud)
  ********************************************************************/
 bool drv_pb03f_set_aligenie(const char *pid, const char *mac, const char *secret)
 {
-    if (!pid || !mac || !secret) {
+    if (!pid || !mac || !secret)
+    {
         return false;
     }
     int n = snprintf(s_ble.cmd_buf, sizeof(s_ble.cmd_buf),
                      "AT+AliGenie=%s,%s,%s\r\n", pid, mac, secret);
-    if (n <= 0 || n >= (int)sizeof(s_ble.cmd_buf)) {
+    if (n <= 0 || n >= (int)sizeof(s_ble.cmd_buf))
+    {
         return false;
     }
     return _at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
@@ -733,10 +782,12 @@ bool drv_pb03f_set_aligenie(const char *pid, const char *mac, const char *secret
 uint16_t drv_pb03f_take_at_resp(uint8_t *out, uint16_t maxlen)
 {
     uint16_t n = s_ble.at_resp_len;
-    if (n == 0 || !out) {
+    if (n == 0 || !out)
+    {
         return 0;
     }
-    if (n > maxlen) {
+    if (n > maxlen)
+    {
         n = maxlen;
     }
     memcpy(out, s_ble.at_resp, n);

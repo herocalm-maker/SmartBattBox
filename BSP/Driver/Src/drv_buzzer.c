@@ -47,7 +47,10 @@ void drv_buzzer_init(void)
 /* 短鸣通用模式: 按 on/off 时长生成 count 次间歇鸣叫 (关中断保护状态一致性) */
 static bool buzzer_short_pattern(uint8_t count, uint32_t on_ticks, uint32_t off_ticks)
 {
-    if (count == 0) return false;
+    if (count == 0)
+    {
+        return false;
+    }
     /* The timer ISR must not observe a partially updated pattern. */
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
@@ -91,8 +94,10 @@ bool drv_buzzer_reject_sound(void)
 ********************************************************************/
 bool drv_buzzer_long_sound(uint32_t duration_ms)
 {
-    if (duration_ms == 0) 
-      return false;
+    if (duration_ms == 0)
+    {
+        return false;
+    }
 
     s_BeepData.SoundType   = BEEP_SOUND_LONG;
     s_BeepData.LongTimeMs  = duration_ms;
@@ -128,7 +133,9 @@ bool drv_buzzer_stop(void)
 bool drv_buzzer_is_busy(void)
 {
     if (s_BeepData.ShortNumber > 0)
+    {
         return true;
+    }
     return false;
 }
 
@@ -169,7 +176,7 @@ void drv_buzzer_tick(void)
                     {
                         s_BeepData.ShortNumber--;
                         if (s_BeepData.ShortNumber > 0)
-                         {
+                        {
                             s_BeepData.ShortState = true;
                             s_tick_cnt = 0;
                             BEEP_ON();

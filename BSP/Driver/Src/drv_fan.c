@@ -31,10 +31,16 @@ void drv_fan_init(void)
 ********************************************************************/
 void drv_fan_on(fan_id_enum id)
 {
-    switch (id) {
-        case FAN_MAIN: bsp_gpio_write(BOARD_FAN1_CTRL_PORT, BOARD_FAN1_CTRL_PIN, GPIO_PIN_SET); break;
-        case FAN_AUX:  bsp_gpio_write(BOARD_FAN2_CTRL_PORT, BOARD_FAN2_CTRL_PIN, GPIO_PIN_SET); break;
-        default: break;
+    switch (id)
+    {
+        case FAN_MAIN:
+            bsp_gpio_write(BOARD_FAN1_CTRL_PORT, BOARD_FAN1_CTRL_PIN, GPIO_PIN_SET);
+            break;
+        case FAN_AUX:
+            bsp_gpio_write(BOARD_FAN2_CTRL_PORT, BOARD_FAN2_CTRL_PIN, GPIO_PIN_SET);
+            break;
+        default:
+            break;
     }
 }
 
@@ -46,10 +52,16 @@ void drv_fan_on(fan_id_enum id)
 ********************************************************************/
 void drv_fan_off(fan_id_enum id)
 {
-    switch (id) {
-        case FAN_MAIN: bsp_gpio_write(BOARD_FAN1_CTRL_PORT, BOARD_FAN1_CTRL_PIN, GPIO_PIN_RESET); break;
-        case FAN_AUX:  bsp_gpio_write(BOARD_FAN2_CTRL_PORT, BOARD_FAN2_CTRL_PIN, GPIO_PIN_RESET); break;
-        default: break;
+    switch (id)
+    {
+        case FAN_MAIN:
+            bsp_gpio_write(BOARD_FAN1_CTRL_PORT, BOARD_FAN1_CTRL_PIN, GPIO_PIN_RESET);
+            break;
+        case FAN_AUX:
+            bsp_gpio_write(BOARD_FAN2_CTRL_PORT, BOARD_FAN2_CTRL_PIN, GPIO_PIN_RESET);
+            break;
+        default:
+            break;
     }
 }
 

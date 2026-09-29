@@ -36,7 +36,8 @@ static bool   s_ready = false;   /* init 完成标志 */
  */
 static void dwin_rx_cb(bsp_uart_port_t port, uint8_t *buf, uint16_t len)
 {
-    if (!s_ready || port != s_dwin.port) {
+    if (!s_ready || port != s_dwin.port)
+    {
         return;
     }
     comm_ringbuf_push(&s_dwin.rx_ring, buf, len);
@@ -51,10 +52,12 @@ static void dwin_rx_cb(bsp_uart_port_t port, uint8_t *buf, uint16_t len)
 ********************************************************************/
 static bool dwin_send_frame(uint8_t data_len, const uint8_t *data)
 {
-    if (!s_ready) {
+    if (!s_ready)
+    {
         return false;
     }
-    if (data_len + 3 > DWIN_TX_MAX) {
+    if (data_len + 3 > DWIN_TX_MAX)
+    {
         return false;
     }
 
@@ -62,7 +65,8 @@ static bool dwin_send_frame(uint8_t data_len, const uint8_t *data)
     frame[0] = DWIN_FRAME_HEAD1;
     frame[1] = DWIN_FRAME_HEAD2;
     frame[2] = data_len;
-    if (data && data_len > 0) {
+    if (data && data_len > 0)
+    {
         memcpy(&frame[3], data, data_len);
     }
     return bsp_uart_send(s_dwin.port, frame, (uint16_t)(data_len + 3u), DWIN_TIMEOUT_MS);
@@ -83,7 +87,8 @@ static void dwin_write_vp(uint16_t vp_addr, const uint8_t *data, uint16_t data_l
     cmd[0] = DWIN_CMD_WRITE;
     cmd[1] = (uint8_t)(vp_addr >> 8);
     cmd[2] = (uint8_t)(vp_addr & 0xFFu);
-    if (data && data_len > 0) {
+    if (data && data_len > 0)
+    {
         memcpy(&cmd[3], data, data_len);
     }
     dwin_send_frame(cmd_len, cmd);
@@ -101,7 +106,8 @@ static void dwin_write_vp(uint16_t vp_addr, const uint8_t *data, uint16_t data_l
 ********************************************************************/
 bool drv_dwin_init(bsp_uart_port_t port)
 {
-    if (port >= BSP_UART_MAX) {
+    if (port >= BSP_UART_MAX)
+    {
         return false;
     }
 
@@ -120,7 +126,8 @@ bool drv_dwin_init(bsp_uart_port_t port)
         .rx_buf      = s_dwin.uart_rx_buf,
         .rx_buf_size = DWIN_RX_BUF_SIZE,
     };
-    if (!bsp_uart_init(port, &cfg)) {
+    if (!bsp_uart_init(port, &cfg))
+    {
         return false;
     }
     s_ready = true;
@@ -137,7 +144,8 @@ bool drv_dwin_init(bsp_uart_port_t port)
 ********************************************************************/
 void drv_dwin_deinit(void)
 {
-    if (!s_ready) {
+    if (!s_ready)
+    {
         return;
     }
     s_ready = false;
@@ -154,7 +162,8 @@ void drv_dwin_deinit(void)
 ********************************************************************/
 uint16_t drv_dwin_read(uint8_t *buf, uint16_t len)
 {
-    if (!s_ready || buf == NULL || len == 0) {
+    if (!s_ready || buf == NULL || len == 0)
+    {
         return 0;
     }
     return comm_ringbuf_pop(&s_dwin.rx_ring, buf, len);
@@ -172,7 +181,8 @@ uint16_t drv_dwin_read(uint8_t *buf, uint16_t len)
 ********************************************************************/
 void drv_dwin_set_page(dwin_page_enum page)
 {
-    if (page == s_dwin.cur_page) {
+    if (page == s_dwin.cur_page)
+    {
         return;
     }
     s_dwin.cur_page = page;
@@ -203,11 +213,13 @@ dwin_page_enum drv_dwin_get_page(void)
 ********************************************************************/
 void drv_dwin_set_text(uint16_t vp_addr, const char *text)
 {
-    if (!text) {
+    if (!text)
+    {
         return;
     }
     uint16_t len = (uint16_t)strlen(text);
-    if (len > DWIN_TX_MAX - 4) {
+    if (len > DWIN_TX_MAX - 4)
+    {
         len = DWIN_TX_MAX - 4;
     }
     dwin_write_vp(vp_addr, (const uint8_t *)text, len);
@@ -223,14 +235,16 @@ void drv_dwin_set_text(uint16_t vp_addr, const char *text)
 ********************************************************************/
 void drv_dwin_set_text_format(uint16_t vp_addr, const char *fmt, ...)
 {
-    if (!fmt) {
+    if (!fmt)
+    {
         return;
     }
     va_list ap;
     va_start(ap, fmt);
     int n = vsnprintf((char *)s_dwin.tx_buf, sizeof(s_dwin.tx_buf), fmt, ap);
     va_end(ap);
-    if (n > 0) {
+    if (n > 0)
+    {
         drv_dwin_set_text(vp_addr, (const char *)s_dwin.tx_buf);
     }
 }
@@ -278,7 +292,8 @@ void drv_dwin_set_value_u16(uint16_t vp_addr, uint16_t val)
 ********************************************************************/
 void drv_dwin_set_brightness(uint8_t percent)
 {
-    if (percent > 100u) {
+    if (percent > 100u)
+    {
         percent = 100u;
     }
     uint8_t data[2] = { 0x00, percent };
@@ -310,7 +325,8 @@ void drv_dwin_write_vp(uint16_t vp_addr, const uint8_t *data, uint16_t len)
 ********************************************************************/
 void drv_dwin_send_end(void)
 {
-    if (!s_ready) {
+    if (!s_ready)
+    {
         return;
     }
     static const uint8_t end_marker[] = { 0xFFu, 0xFFu, 0xFFu };

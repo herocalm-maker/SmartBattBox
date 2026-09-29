@@ -41,9 +41,12 @@ static hlw8110_t *s_dev[BSP_UART_MAX] = {NULL};
 static void hlw8110_rx_cb(bsp_uart_port_t port, uint8_t *buf, uint16_t len)
 {
     if (port >= BSP_UART_MAX)
+    {
         return;
+    }
     hlw8110_t *inst = s_dev[port];
-    if (inst != NULL) {
+    if (inst != NULL)
+    {
         comm_ringbuf_push(&inst->rx_ring, buf, len);
     }
 }
@@ -82,7 +85,9 @@ static uint8_t hlw8110_checksum_clac(const uint8_t *buf, uint8_t len)
 static uint16_t hlw8110_send(hlw8110_t *inst, const uint8_t *cmd, uint8_t cmd_len)
 {
     if (inst == NULL || cmd == NULL || cmd_len == 0)
+    {
         return 0;
+    }
     return bsp_uart_send(inst->port, cmd, cmd_len, 100);
 }
 
@@ -106,7 +111,9 @@ static uint16_t hlw8110_sendAndRecv(hlw8110_t *inst, const uint8_t *cmd, uint8_t
     uint16_t recvlen   = 0;
     uint16_t n         = 0;
     if (inst == NULL || respbuff == NULL || resp_len == 0)
+    {
         return 0;
+    }
 
     comm_ringbuf_reset(&inst->rx_ring);
     if (cmd != NULL && cmd_len > 0)
@@ -161,16 +168,22 @@ static uint16_t hlw8110_readReg(hlw8110_t *inst, uint8_t regaddr, uint8_t *readb
     uint8_t resp[HLW8110_TEMP_BUF_SIZE] = {0};
     uint16_t recvlen = 0;
     if (inst == NULL || readbuff == NULL || readlen < 2 || readlen > 4)
+    {
         return 0;
+    }
     cmd[0] = HLW8110_PREAMBLE;
     cmd[1] = regaddr;
     /* 读命令固定 2 字节无校验; 响应 = readlen 字节数据 + 1 字节校验和 */
     recvlen = hlw8110_sendAndRecv(inst, cmd, 2, resp, (uint8_t)(readlen + 1U),HLW8110_RESP_TIMEOUT_MS);
     if (recvlen < (uint16_t)(readlen + 1U))
+    {
         return 0;
+    }
     /* 校验和验证: ~(0xA5 + addr + Σdata) & 0xFF 应与末字节一致 (原实现被注释, 已恢复) */
     if (!hlw8110_check_read_checksum(cmd, resp, readlen))
+    {
         return 0;
+    }
     memcpy(readbuff, resp, readlen);
     return readlen;
 }
@@ -190,7 +203,9 @@ static bool hlw8110_writeReg(hlw8110_t *inst, uint8_t regaddr, const uint8_t *wr
     uint8_t i = 0;
     bool ok = false;
     if (inst == NULL || writebuff == NULL || writelen < 2 || writelen > 4)
+    {
         return false;
+    }
     cmd[0] = HLW8110_PREAMBLE;
     cmd[1] = regaddr | HLW8110_REG_W_BIT;
     for (i = 0; i < writelen; i++)
@@ -219,8 +234,10 @@ static bool hlw8110_special_cmd(hlw8110_t *inst, uint8_t dat)
     cmd[1] = HLW8110_CMD_SPECIAL;
     cmd[2] = dat;
     cmd[3] = hlw8110_checksum_clac(cmd,3U);
-    if(hlw8110_send(inst, cmd,4U) > 0U)
+    if (hlw8110_send(inst, cmd, 4U) > 0U)
+    {
         return true;
+    }
     return false;
 }
 
@@ -236,9 +253,13 @@ bool drv_hlw8110_handshake(hlw8110_t *inst)
 {
     uint8_t id_buf[3] = {0};
     if (inst == NULL)
+    {
         return false;
+    }
     if (hlw8110_readReg(inst, HLW8110_REG_DEVICEID, id_buf, 3) == 0)
+    {
         return false;
+    }
     return (id_buf[0] == 0x77U && id_buf[1] == 0x61U && id_buf[2] == 0x10U);
 }
 
@@ -252,13 +273,18 @@ bool drv_hlw8110_handshake(hlw8110_t *inst)
  */
 bool drv_hlw8110_init(hlw8110_t *inst, bsp_uart_port_t port)
 {
-    if(inst == NULL || port >= BSP_UART_MAX)
+    if (inst == NULL || port >= BSP_UART_MAX)
+    {
         return false;
+    }
 
     /* 保存上层注入的板级硬件配置 (memset 会整体清零, 需先暂存再恢复) */
     uint8_t          hw_set_save = inst->hw_set;
     hlw8110_hwcfg_t  hw_save;
-    if (hw_set_save) { hw_save = inst->hw; }
+    if (hw_set_save)
+    {
+        hw_save = inst->hw;
+    }
 
     memset(inst,0,sizeof(hlw8110_t));
     inst->port = port;
@@ -291,14 +317,16 @@ bool drv_hlw8110_init(hlw8110_t *inst, bsp_uart_port_t port)
         .rx_buf_size = HLW8110_RX_BUF_SIZE
     };
 
-    if(!bsp_uart_init(port, &cfg))
+    if (!bsp_uart_init(port, &cfg))
+    {
         return false;
+    }
 
     s_dev[port] = inst;
 
     bsp_delay_ms(10);
 
-    if(drv_hlw8110_handshake(inst))
+    if (drv_hlw8110_handshake(inst))
     {
        ;
     }
@@ -337,10 +365,12 @@ bool drv_hlw8110_init(hlw8110_t *inst, bsp_uart_port_t port)
  */
 void drv_hlw8110_deinit(hlw8110_t *inst)
 {
-    if(inst == NULL)
+    if (inst == NULL)
+    {
         return;
+    }
     bsp_uart_port_t port = inst->port;
-    if(port < BSP_UART_MAX)
+    if (port < BSP_UART_MAX)
     {
         s_dev[port] = NULL;
     }
@@ -349,9 +379,16 @@ void drv_hlw8110_deinit(hlw8110_t *inst)
     /* 保留板级硬件配置 (重 init 后仍生效), 仅清运行态 */
     uint8_t          hw_set_save = inst->hw_set;
     hlw8110_hwcfg_t  hw_save;
-    if (hw_set_save) { hw_save = inst->hw; }
+    if (hw_set_save)
+    {
+        hw_save = inst->hw;
+    }
     memset(inst,0,sizeof(hlw8110_t));
-    if (hw_set_save) { inst->hw = hw_save; inst->hw_set = 1; }
+    if (hw_set_save)
+    {
+        inst->hw = hw_save;
+        inst->hw_set = 1;
+    }
 }
 
 /**
@@ -364,38 +401,65 @@ void drv_hlw8110_deinit(hlw8110_t *inst)
  */
 bool drv_hlw8110_load_otp(hlw8110_t *inst)
 {
-    if(inst == NULL)
+    if (inst == NULL)
         return false;
     uint8_t buf[3];
     uint16_t calc_checksum;
     uint16_t reg_checksum;
 
     /* 读取OTP 0x70~0x77 */
-    if(hlw8110_readReg(inst,HLW8110_REG_RMS_IAC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_RMS_IAC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.rms_iac = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_RMS_IBC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_RMS_IBC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.rms_ibc = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_RMS_UC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_RMS_UC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.rms_uc = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_POWER_PAC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_POWER_PAC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.power_pac = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_POWER_PBC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_POWER_PBC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.power_pbc = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_POWER_SC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_POWER_SC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.power_sc = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_ENERGY_AC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_ENERGY_AC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.energy_ac = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_ENERGY_BC,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_ENERGY_BC, buf, 2) == 0)
+    {
+        return false;
+    }
     inst->otp.energy_bc = (buf[0]<<8)|buf[1];
 
-    if(hlw8110_readReg(inst,HLW8110_REG_CHECKSUM,buf,2)==0) return false;
+    if (hlw8110_readReg(inst, HLW8110_REG_CHECKSUM, buf, 2) == 0)
+    {
+        return false;
+    }
     reg_checksum = (buf[0]<<8)|buf[1];
     inst->otp.checksum_reg = reg_checksum;
 
@@ -411,7 +475,7 @@ bool drv_hlw8110_load_otp(hlw8110_t *inst)
     sum += inst->otp.energy_bc;
     calc_checksum = (uint16_t)(~sum);
 
-    if(calc_checksum != reg_checksum)
+    if (calc_checksum != reg_checksum)
     {
         return false; /* OTP校验和错误，芯片OTP异常 */
     }
@@ -436,43 +500,50 @@ bool drv_hlw8110_read_data(hlw8110_t *inst, hlw8110_data_t *out)
     uint16_t ret = 0;
 
     ret = hlw8110_readReg(inst, HLW8110_REG_RMSU, buf, 3U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->rms_u = ((uint32_t)buf[0] << 16U) | ((uint32_t)buf[1] << 8U) | buf[2];
 
     ret = hlw8110_readReg(inst, HLW8110_REG_RMSIA, buf, 3U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->rms_ia = ((uint32_t)buf[0] << 16U) | ((uint32_t)buf[1] << 8U) | buf[2];
 
     ret = hlw8110_readReg(inst, HLW8110_REG_POWER_PA, buf, 4U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->power_pa = ((uint32_t)buf[0] << 24U) | ((uint32_t)buf[1] << 16U) | ((uint32_t)buf[2] << 8U) | buf[3];
 
     ret = hlw8110_readReg(inst, HLW8110_REG_ENERGY_PA, buf, 3U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->energy_pa = ((uint32_t)buf[0] << 16U) | ((uint32_t)buf[1] << 8U) | buf[2];
 
     ret = hlw8110_readReg(inst, HLW8110_REG_PF, buf, 3U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->power_factor = ((uint32_t)buf[0] << 16U) | ((uint32_t)buf[1] << 8U) | buf[2];
 
     ret = hlw8110_readReg(inst, HLW8110_REG_UFREQ, buf, 2U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->u_freq = ((uint16_t)buf[0] << 8U) | buf[1];
 
     ret = hlw8110_readReg(inst, HLW8110_REG_HFCONST, buf, 2U);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         return false;
     }
     out->hf_const = ((uint16_t)buf[0] << 8U) | buf[1];
@@ -490,14 +561,18 @@ bool drv_hlw8110_read_data(hlw8110_t *inst, hlw8110_data_t *out)
  */
 bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
 {
-    if(inst == NULL || out == NULL)
+    if (inst == NULL || out == NULL)
+    {
         return false;
+    }
     hlw8110_data_t raw = {0};
-    if(!drv_hlw8110_read_data(inst, &raw))
+    if (!drv_hlw8110_read_data(inst, &raw))
+    {
         return false;
+    }
 
     /* ========= 电压换算，原厂公式 + K2 板级归一化 ========= */
-    if((raw.rms_u & 0x800000U) != 0U)
+    if ((raw.rms_u & 0x800000U) != 0U)
     {
         out->voltage = 0.0f;
     }
@@ -510,7 +585,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
     }
 
     /* ========= 电流换算，原厂公式 + K1 板级归一化 ========= */
-    if((raw.rms_ia & 0x800000U) !=0U)
+    if ((raw.rms_ia & 0x800000U) != 0U)
     {
         out->current = 0.0f;
     }
@@ -524,7 +599,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
 
     /* ========= 有功功率，原厂正负功率处理 + K1·K2 ========= */
     float p_val;
-    if(raw.power_pa > 0x80000000U)
+    if (raw.power_pa > 0x80000000U)
     {
         p_val = (float)(~raw.power_pa);
     }
@@ -539,7 +614,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
     /* ========= 功率因数，原厂逻辑：小功率PF置0 ========= */
     uint32_t pf_raw = raw.power_factor;
     float pf;
-    if(pf_raw >= 0x800000U)
+    if (pf_raw >= 0x800000U)
     {
         pf = -1.0f * ((0xFFFFFFU + 1U) - pf_raw)/(float)0x800000U;
     }
@@ -547,7 +622,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
     {
         pf = (float)pf_raw / (float)0x7FFFFFU;
     }
-    if(out->power < 0.3f)
+    if (out->power < 0.3f)
     {
         pf = 0.0f;
     }
@@ -561,7 +636,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
     out->energy_kwh = e_val;
 
     /* ========= 频率 ========= */
-    if(raw.u_freq !=0U)
+    if (raw.u_freq != 0U)
     {
         out->freq_hz = 3579545.0f / ( 8.0f * (float)raw.u_freq );
     }
@@ -588,7 +663,9 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
 bool drv_hlw8110_set_hwcfg(hlw8110_t *inst, const hlw8110_hwcfg_t *cfg)
 {
     if (inst == NULL)
+    {
         return false;
+    }
     if (cfg == NULL)
     {
         inst->hw_set = 0;
@@ -613,9 +690,13 @@ bool drv_hlw8110_read_reg(hlw8110_t *inst, uint8_t addr, uint8_t len, uint32_t *
 {
     uint8_t buf[4] = {0};
     if (inst == NULL || val == NULL || len < 2 || len > 4)
+    {
         return false;
+    }
     if (hlw8110_readReg(inst, addr, buf, len) == 0)
+    {
         return false;
+    }
     uint32_t v = 0;
     for (uint8_t i = 0; i < len; i++)
         v = (v << 8) | buf[i];
