@@ -29,32 +29,32 @@ static bool spi_failed;
 
 
 /*********************************************************************
- * @fn      _cs_low
+ * @fn      w25q128_cs_low
  * @brief   拉低 CS 片选 (激活 W25Q128 SPI 通讯)
  * @return  none
 ********************************************************************/
-static void _cs_low(void)
+static void w25q128_cs_low(void)
 {
     bsp_gpio_write(BOARD_FLASH_CS_PORT, BOARD_FLASH_CS_PIN, GPIO_PIN_RESET);
 }
 
 /*********************************************************************
- * @fn      _cs_high
+ * @fn      w25q128_cs_high
  * @brief   拉高 CS 片选 (释放 W25Q128 SPI 通讯)
  * @return  none
 ********************************************************************/
-static void _cs_high(void)
+static void w25q128_cs_high(void)
 {
     bsp_gpio_write(BOARD_FLASH_CS_PORT, BOARD_FLASH_CS_PIN, GPIO_PIN_SET);
 }
 
 /*********************************************************************
- * @fn      _spi_xchg
+ * @fn      w25q128_spi_xchg
  * @brief   SPI2 全双工交换 1 字节
  * @param   tx  发送字节
  * @return  uint8_t 接收字节
 ********************************************************************/
-static uint8_t _spi_xchg(uint8_t tx)
+static uint8_t w25q128_spi_xchg(uint8_t tx)
 {
     uint8_t rx = 0xFF;
     if (spi_failed)
@@ -69,16 +69,16 @@ static uint8_t _spi_xchg(uint8_t tx)
 }
 
 /*********************************************************************
- * @fn      _send_cmd
+ * @fn      w25q128_send_cmd
  * @brief   发送单字节命令 (拉低 CS → 发命令 → 拉高 CS)
  * @param   cmd  命令字节
  * @return  none
 ********************************************************************/
-static void _send_cmd(uint8_t cmd)
+static void w25q128_send_cmd(uint8_t cmd)
 {
-    _cs_low();
-    _spi_xchg(cmd);
-    _cs_high();
+    w25q128_cs_low();
+    w25q128_spi_xchg(cmd);
+    w25q128_cs_high();
 }
 
 /*********************************************************************
@@ -97,7 +97,8 @@ bool drv_w25q128_init(void)
     spi_cfg.cpha               = BOARD_SPI_CPHA;
     spi_cfg.data_size          = BOARD_SPI_DATASIZE;
     spi_cfg.first_bit          = SPI_FIRSTBIT_MSB;
-    if (!bsp_spi_init(BSP_SPI_2, &spi_cfg)) {
+    if (!bsp_spi_init(BSP_SPI_2, &spi_cfg))
+    {
         return false;
     }
 
@@ -110,7 +111,7 @@ bool drv_w25q128_init(void)
     bsp_gpio_write(BOARD_FLASH_RST_PORT, BOARD_FLASH_RST_PIN, GPIO_PIN_SET);
     bsp_gpio_write(BOARD_FLASH_WP_PORT, BOARD_FLASH_WP_PIN, GPIO_PIN_SET);
     bsp_delay_ms(1);     /* 等待 tVSL=3us (min), 留余量 */
-    _send_cmd(W25_CMD_WAKE);  /* 退出 Power-down (命令本身需 tRES1=3us) */
+    w25q128_send_cmd(W25_CMD_WAKE);  /* 退出 Power-down (命令本身需 tRES1=3us) */
     bsp_delay_ms(3);     /* 等待 tRES1 完成 */
 
     /* 校验 JEDEC ID: 读取 0x9F 返回 3 字节 (制造商+型号+容量) */
@@ -127,12 +128,12 @@ uint32_t drv_w25q128_read_id(void)
 {
     spi_failed=false;
     uint32_t id = 0;
-    _cs_low();
-    _spi_xchg(W25_CMD_READ_ID);
-    id  = ((uint32_t)_spi_xchg(0x00)) << 16;
-    id |= ((uint32_t)_spi_xchg(0x00)) << 8;
-    id |=  (uint32_t)_spi_xchg(0x00);
-    _cs_high();
+    w25q128_cs_low();
+    w25q128_spi_xchg(W25_CMD_READ_ID);
+    id  = ((uint32_t)w25q128_spi_xchg(0x00)) << 16;
+    id |= ((uint32_t)w25q128_spi_xchg(0x00)) << 8;
+    id |=  (uint32_t)w25q128_spi_xchg(0x00);
+    w25q128_cs_high();
     return spi_failed ? 0 : id;
 }
 
@@ -155,15 +156,16 @@ bool drv_w25q128_wait_busy(uint32_t timeout_ms)
         {
             osDelay(1);
         }
-        _cs_low();
-        _spi_xchg(W25_CMD_READ_STATUS);
-        sts = _spi_xchg(0x00);
-        _cs_high();
+        w25q128_cs_low();
+        w25q128_spi_xchg(W25_CMD_READ_STATUS);
+        sts = w25q128_spi_xchg(0x00);
+        w25q128_cs_high();
         if (spi_failed)
         {
             return false;
         }
-        if ((sts & 0x01) == 0) {
+        if ((sts & 0x01) == 0)
+        {
             return true;
         }
     } while ((HAL_GetTick() - tick) < timeout_ms);
@@ -185,13 +187,16 @@ bool drv_w25q128_read(uint32_t addr, uint8_t *buf, uint32_t len)
     {
         return false;
     }
-    _cs_low();
-    _spi_xchg(W25_CMD_READ);
-    _spi_xchg((addr >> 16) & 0xFF);
-    _spi_xchg((addr >> 8)  & 0xFF);
-    _spi_xchg( addr        & 0xFF);
-    for (uint32_t i = 0; i < len; i++) buf[i] = _spi_xchg(0x00);
-    _cs_high();
+    w25q128_cs_low();
+    w25q128_spi_xchg(W25_CMD_READ);
+    w25q128_spi_xchg((addr >> 16) & 0xFF);
+    w25q128_spi_xchg((addr >> 8)  & 0xFF);
+    w25q128_spi_xchg( addr        & 0xFF);
+    for (uint32_t i = 0; i < len; i++)
+    {
+        buf[i] = w25q128_spi_xchg(0x00);
+    }
+    w25q128_cs_high();
     return !spi_failed;
 }
 
@@ -209,13 +214,13 @@ bool drv_w25q128_erase_sector(uint32_t sec_idx)
         return false;
     }
     uint32_t addr = sec_idx * W25Q128_SECTOR_SIZE;
-    _send_cmd(W25_CMD_WRITE_ENABLE);
-    _cs_low();
-    _spi_xchg(W25_CMD_SECTOR_ERASE);
-    _spi_xchg((addr >> 16) & 0xFF);
-    _spi_xchg((addr >> 8)  & 0xFF);
-    _spi_xchg( addr        & 0xFF);
-    _cs_high();
+    w25q128_send_cmd(W25_CMD_WRITE_ENABLE);
+    w25q128_cs_low();
+    w25q128_spi_xchg(W25_CMD_SECTOR_ERASE);
+    w25q128_spi_xchg((addr >> 16) & 0xFF);
+    w25q128_spi_xchg((addr >> 8)  & 0xFF);
+    w25q128_spi_xchg( addr        & 0xFF);
+    w25q128_cs_high();
     return drv_w25q128_wait_busy(500);   /* 扇区擦除最大 400ms */
 }
 
@@ -238,7 +243,8 @@ bool drv_w25q128_write(uint32_t addr, const uint8_t *buf, uint32_t len)
     uint32_t cur = addr;
     const uint8_t *p = buf;
 
-    while (remaining > 0) {
+    while (remaining > 0)
+    {
         /* 计算当前页剩余可写空间 */
         uint32_t page_off = cur % W25Q128_PAGE_SIZE;
         uint32_t chunk = W25Q128_PAGE_SIZE - page_off;
@@ -247,16 +253,20 @@ bool drv_w25q128_write(uint32_t addr, const uint8_t *buf, uint32_t len)
             chunk = remaining;
         }
 
-        _send_cmd(W25_CMD_WRITE_ENABLE);
-        _cs_low();
-        _spi_xchg(W25_CMD_PAGE_PROGRAM);
-        _spi_xchg((cur >> 16) & 0xFF);
-        _spi_xchg((cur >> 8)  & 0xFF);
-        _spi_xchg( cur        & 0xFF);
-        for (uint32_t i = 0; i < chunk; i++) _spi_xchg(*p++);
-        _cs_high();
+        w25q128_send_cmd(W25_CMD_WRITE_ENABLE);
+        w25q128_cs_low();
+        w25q128_spi_xchg(W25_CMD_PAGE_PROGRAM);
+        w25q128_spi_xchg((cur >> 16) & 0xFF);
+        w25q128_spi_xchg((cur >> 8)  & 0xFF);
+        w25q128_spi_xchg( cur        & 0xFF);
+        for (uint32_t i = 0; i < chunk; i++)
+        {
+            w25q128_spi_xchg(*p++);
+        }
+        w25q128_cs_high();
 
-        if (!drv_w25q128_wait_busy(100)) {
+        if (!drv_w25q128_wait_busy(100))
+        {
             return false;
         }
 

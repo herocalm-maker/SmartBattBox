@@ -44,7 +44,7 @@ static void dwin_rx_cb(bsp_uart_port_t port, uint8_t *buf, uint16_t len)
 }
 
 /*********************************************************************
- * @fn      _send_frame
+ * @fn      dwin_send_frame
  * @brief   发送 DGUS 帧 (帧头 5A A5 + LEN + DATA)
  * @param   data_len  数据字节数 (不含帧头)
  * @param   data      数据缓冲区 (指令+数据)

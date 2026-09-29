@@ -657,7 +657,7 @@ static void handle_path_key(bool charge)
  * @brief 分发按键事件：ONOFF仅响应长按，AC键仅响应按下。
  * @param key_code 按键编码，包含按下或长按标志。
  */
-static void _key_event_handler(uint8_t key_code)
+static void app_main_task_key_event_handler(uint8_t key_code)
 {
     switch (key_code)
     {
@@ -863,7 +863,7 @@ void AppMainTask(void *arg)
     drv_fan_off(FAN_MAIN);
     drv_led_off(LED_ALM);
     mod_key_init();
-    mod_key_register_callback(_key_event_handler);
+    mod_key_register_callback(app_main_task_key_event_handler);
     logger_out(
         LOG_INFO,
         "Power controller: AC=90..300V, PD4 -> 500ms -> PD7 -> 100ms -> PD0; PD4 held ON");

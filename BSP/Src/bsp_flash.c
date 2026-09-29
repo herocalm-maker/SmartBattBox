@@ -24,7 +24,7 @@ static uint32_t s_sector; /* 待擦除的扇区号 */
 /*--------------------------------------------------------------------
  * 内部: 校验地址范围落在 PARAM 扇区内
  *--------------------------------------------------------------------*/
-static bool _addr_valid(uint32_t addr, uint16_t len)
+static bool bsp_flash_addr_valid(uint32_t addr, uint16_t len)
 {
     return (addr >= s_base) &&
            (addr <  s_base + s_size) &&
@@ -38,21 +38,32 @@ static bool _addr_valid(uint32_t addr, uint16_t len)
 bool bsp_flash_init(uint32_t base, uint32_t size, uint32_t sector)
 {
     /* 窗口须落在 MCU 内部 Flash 地址空间内 (0x08000000-0x080FFFFF) */
-    if (base < 0x08000000u || base > 0x080FFFFFu || size == 0u) return false;
-    s_base = base; s_size = size; s_sector = sector;
+    if (base < 0x08000000u || base > 0x080FFFFFu || size == 0u)
+    {
+        return false;
+    }
+    s_base = base;
+    s_size = size;
+    s_sector = sector;
     return true;
 }
 
 bool bsp_flash_read(uint32_t addr, void *buf, uint16_t len)
 {
-    if (buf == NULL || len == 0 || !_addr_valid(addr, len)) return false;
+    if (buf == NULL || len == 0 || !bsp_flash_addr_valid(addr, len))
+    {
+        return false;
+    }
     memcpy(buf, (const void *)addr, len);
     return true;
 }
 
 bool bsp_flash_write(uint32_t addr, const void *buf, uint16_t len)
 {
-    if (buf == NULL || len == 0 || !_addr_valid(addr, len)) return false;
+    if (buf == NULL || len == 0 || !bsp_flash_addr_valid(addr, len))
+    {
+        return false;
+    }
 
     const uint8_t *src = (const uint8_t *)buf;
     HAL_FLASH_Unlock();

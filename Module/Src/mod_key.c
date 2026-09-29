@@ -67,7 +67,7 @@ static mod_key_callback_t s_key_callback = NULL;
 /*--------------------------------------------------------------------
  * 内部: 读取所有按键原始状态 (位掩码)
  *--------------------------------------------------------------------*/
-static uint8_t _read_all_keys(void)
+static uint8_t mod_key_read_all_keys(void)
 {
     uint8_t mask = 0;
     for (int i = 0; i < KEY_IDX_CNT; i++) {
@@ -110,7 +110,7 @@ void mod_key_register_callback(mod_key_callback_t cb)
 void mod_key_poll_handler(void)
 {
     uint8_t return_key = KEY_NONE;
-    uint8_t cur_key_val = _read_all_keys();
+    uint8_t cur_key_val = mod_key_read_all_keys();
 
     switch (s_key.key_state) 
     {

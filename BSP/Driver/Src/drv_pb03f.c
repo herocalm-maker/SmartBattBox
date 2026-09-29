@@ -44,15 +44,15 @@ static uint8_t  s_dma_rx_buf[300] = {0};
 /*--------------------------------------------------------------------
  * URC 回调声明
  *--------------------------------------------------------------------*/
-static int _urc_connected(ble_info_t *info, uint8_t *data, uint16_t len);
-static int _urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len);
-static int _urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len);
+static int pb03f_urc_connected(ble_info_t *info, uint8_t *data, uint16_t len);
+static int pb03f_urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len);
+static int pb03f_urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len);
 
 /* URC 回调表 (前缀 + 回调函数) */
 static const ble_urc_item_t s_urc_table[URC_TABLE_MAX] = {
-    { "+EVENT:BLE_CONNECTED",    _urc_connected },
-    { "+EVENT:BLE_DISCONNECT",   _urc_disconnected },
-    { "+DATA=",                  _urc_recv_data },
+    { "+EVENT:BLE_CONNECTED",    pb03f_urc_connected },
+    { "+EVENT:BLE_DISCONNECT",   pb03f_urc_disconnected },
+    { "+DATA=",                  pb03f_urc_recv_data },
 };
 
 /*====================================================================
@@ -60,7 +60,7 @@ static const ble_urc_item_t s_urc_table[URC_TABLE_MAX] = {
  *====================================================================*/
 
 /* 蓝牙已连接: 自动切换透传模式 */
-static int _urc_connected(ble_info_t *info, uint8_t *data, uint16_t len)
+static int pb03f_urc_connected(ble_info_t *info, uint8_t *data, uint16_t len)
 {
     (void)data; (void)len;
     info->conn_state = BLE_STATE_CONNECTED;
@@ -69,7 +69,7 @@ static int _urc_connected(ble_info_t *info, uint8_t *data, uint16_t len)
 }
 
 /* 蓝牙已断开: 回到 AT 模式 */
-static int _urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len)
+static int pb03f_urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len)
 {
     (void)data; (void)len;
     info->conn_state = BLE_STATE_DISCONNECTED;
@@ -78,7 +78,7 @@ static int _urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len)
 }
 
 /* 透传数据到达: +DATA=<len>,<data> */
-static int _urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len)
+static int pb03f_urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len)
 {
     (void)info;
     const char *prefix = "+DATA=";
@@ -124,7 +124,7 @@ static int _urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len)
  * 按 \r\n 行分割缓冲区, 逐行与 URC 表前缀匹配, 命中则调用回调.
  * 在多行响应中, 同一缓冲区可能触发多个 URC.
  *====================================================================*/
-static int _at_oob_match(uint8_t *data, uint16_t len)
+static int pb03f_at_oob_match(uint8_t *data, uint16_t len)
 {
     int matched = 0;
     uint8_t item_num = 0;
@@ -189,7 +189,7 @@ void drv_pb03f_bsp_rx_cb(bsp_uart_port_t port, uint8_t *buff, uint16_t len)
  * cmd=NULL 时仅读取已有数据 (用于纯 URC 查询).
  * prefix=NULL 时有数据即返回成功.
  *====================================================================*/
-static at_result_enum _at_send_command(const char *cmd,
+static at_result_enum pb03f_at_send_command(const char *cmd,
                                         const char *prefix,
                                         uint8_t *resp, uint16_t resp_max,
                                         uint32_t timeout)
@@ -241,7 +241,7 @@ static at_result_enum _at_send_command(const char *cmd,
         s_ble.at_resp_len += copy;
 
         /* 先处理 URC (不影响 AT 响应匹配) */
-        _at_oob_match(s_ble.at_resp, s_ble.at_resp_len);
+        pb03f_at_oob_match(s_ble.at_resp, s_ble.at_resp_len);
 
         /* 检查前缀匹配 */
         if (prefix)
@@ -517,7 +517,7 @@ void drv_pb03f_on_rx_done(uint16_t len)
 
 /*********************************************************************
  * @fn      drv_pb03f_at_on_rx_event
- * @brief   AT 模式 RX 通知: 释放 at_sem 唤醒 _at_send_command
+ * @brief   AT 模式 RX 通知: 释放 at_sem 唤醒 pb03f_at_send_command
  ********************************************************************/
 void drv_pb03f_at_on_rx_event(uint16_t len)
 {
@@ -607,7 +607,7 @@ uint16_t drv_pb03f_extract_aligenie(const uint8_t *buf, uint16_t len,
  ********************************************************************/
 bool drv_pb03f_at_test(void)
 {
-    return _at_send_command("AT\r\n", "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
+    return pb03f_at_send_command("AT\r\n", "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
 }
 
 /*********************************************************************
@@ -616,7 +616,7 @@ bool drv_pb03f_at_test(void)
  ********************************************************************/
 bool drv_pb03f_reset(void)
 {
-    return _at_send_command("AT+RST\r\n", "OK", NULL, 0, 3000u) == AT_RESULT_OK;
+    return pb03f_at_send_command("AT+RST\r\n", "OK", NULL, 0, 3000u) == AT_RESULT_OK;
 }
 
 /*********************************************************************
@@ -625,7 +625,7 @@ bool drv_pb03f_reset(void)
  ********************************************************************/
 bool drv_pb03f_restore(void)
 {
-    return _at_send_command("AT+RESTORE\r\n", "OK", NULL, 0, 3000u) == AT_RESULT_OK;
+    return pb03f_at_send_command("AT+RESTORE\r\n", "OK", NULL, 0, 3000u) == AT_RESULT_OK;
 }
 
 /*====================================================================
@@ -642,7 +642,7 @@ bool drv_pb03f_get_version(char *out, uint16_t maxlen)
     {
         return false;
     }
-    if (_at_send_command("AT+GMR\r\n", "+VERSION:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    if (pb03f_at_send_command("AT+GMR\r\n", "+VERSION:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
     {
         return false;
     }
@@ -659,7 +659,7 @@ bool drv_pb03f_get_name(char *out, uint16_t maxlen)
     {
         return false;
     }
-    if (_at_send_command("AT+NAME?\r\n", "+NAME:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    if (pb03f_at_send_command("AT+NAME?\r\n", "+NAME:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
     {
         return false;
     }
@@ -676,7 +676,7 @@ bool drv_pb03f_get_mac(char *out, uint16_t maxlen)
     {
         return false;
     }
-    if (_at_send_command("AT+MAC?\r\n", "+MAC:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    if (pb03f_at_send_command("AT+MAC?\r\n", "+MAC:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
     {
         return false;
     }
@@ -694,7 +694,7 @@ bool drv_pb03f_get_state(ble_state_enum *out)
     {
         return false;
     }
-    if (_at_send_command("AT+STATE?\r\n", "+STATE:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
+    if (pb03f_at_send_command("AT+STATE?\r\n", "+STATE:", NULL, 0, BLE_AT_TIMEOUT_MS) != AT_RESULT_OK)
     {
         return false;
     }
@@ -735,7 +735,7 @@ bool drv_pb03f_set_name(const char *name)
     {
         return false;
     }
-    return _at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
+    return pb03f_at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
 }
 
 /*********************************************************************
@@ -749,7 +749,7 @@ bool drv_pb03f_set_uart_baud(uint32_t baud)
     {
         return false;
     }
-    return _at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
+    return pb03f_at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
 }
 
 /*********************************************************************
@@ -768,7 +768,7 @@ bool drv_pb03f_set_aligenie(const char *pid, const char *mac, const char *secret
     {
         return false;
     }
-    return _at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
+    return pb03f_at_send_command(s_ble.cmd_buf, "OK", NULL, 0, BLE_AT_TIMEOUT_MS) == AT_RESULT_OK;
 }
 
 /*====================================================================

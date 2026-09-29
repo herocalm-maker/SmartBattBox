@@ -12,7 +12,7 @@
 #include "stm32f4xx_hal.h"
 
 /* 使能指定 GPIO 端口时钟 */
-static void _enable_port_clk(GPIO_TypeDef *port)
+static void bsp_io_enable_port_clk(GPIO_TypeDef *port)
 {
     if      (port == GPIOA) __HAL_RCC_GPIOA_CLK_ENABLE();
     else if (port == GPIOB) __HAL_RCC_GPIOB_CLK_ENABLE();
@@ -23,7 +23,7 @@ static void _enable_port_clk(GPIO_TypeDef *port)
 }
 
 /* 由引脚号推导 EXTI 中断号 */
-static IRQn_Type _exti_irqn(uint16_t pin)
+static IRQn_Type bsp_io_exti_irqn(uint16_t pin)
 {
     switch (pin) {
         case GPIO_PIN_0:  return EXTI0_IRQn;
@@ -54,7 +54,7 @@ static IRQn_Type _exti_irqn(uint16_t pin)
 void bsp_gpio_init(GPIO_TypeDef *port, uint16_t pin, uint32_t mode, uint32_t pull,
                    GPIO_PinState init_level, uint32_t speed)
 {
-    _enable_port_clk(port);
+    bsp_io_enable_port_clk(port);
 
     /* 输出模式: 先写初始电平再配模式(防毛刺) */
     if (mode == GPIO_MODE_OUTPUT_PP || mode == GPIO_MODE_OUTPUT_OD) {
@@ -71,7 +71,7 @@ void bsp_gpio_init(GPIO_TypeDef *port, uint16_t pin, uint32_t mode, uint32_t pul
     /* 中断模式: 按引脚号使能对应 EXTI NVIC */
     if (mode == GPIO_MODE_IT_RISING || mode == GPIO_MODE_IT_FALLING ||
         mode == GPIO_MODE_IT_RISING_FALLING) {
-        IRQn_Type irqn = _exti_irqn(pin);
+        IRQn_Type irqn = bsp_io_exti_irqn(pin);
         HAL_NVIC_SetPriority(irqn, 5, 0);
         HAL_NVIC_EnableIRQ(irqn);
     }

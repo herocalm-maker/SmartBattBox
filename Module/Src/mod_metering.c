@@ -144,7 +144,7 @@ ac_input_snapshot_t mod_metering_get_ac_input(void)
  * @param  idx        通道索引 (INPUT=0, OUTPUT=1)
  * @param  energy_wh  当前累计电能 (Wh)
  */
-static void _accumulate_energy(uint32_t idx, float energy_wh)
+static void mod_metering_accumulate_energy(uint32_t idx, float energy_wh)
 {
     if (idx >= METERING_IDX_CNT)
       return;
@@ -173,7 +173,7 @@ static void _accumulate_energy(uint32_t idx, float energy_wh)
  * @param  idx  通道索引 (INPUT / OUTPUT)
  * @return true=读取成功
  */
-static bool _channel_process(uint32_t idx)
+static bool mod_metering_channel_process(uint32_t idx)
 {
     metering_ch_t *ch = &s_ch[idx];
     hlw8110_measure_t meas = {0};
@@ -186,7 +186,7 @@ static bool _channel_process(uint32_t idx)
         *ch->p      = meas.power;
         *ch->freq   = meas.freq_hz;
         *ch->energy = meas.energy_kwh * 1000.0f;
-        _accumulate_energy(idx, *ch->energy);
+        mod_metering_accumulate_energy(idx, *ch->energy);
         return true;
     }
 
@@ -256,7 +256,7 @@ void mod_metering_handler(void)
     /* 双通道读取 (输入/输出共用逻辑) */
     for (uint32_t idx = 0; idx < METERING_IDX_CNT; idx++)
     {
-        bool success = _channel_process(idx);
+        bool success = mod_metering_channel_process(idx);
         if (idx == METERING_IDX_INPUT)
         	ac_input_update(success, s_info.vin_v);
 

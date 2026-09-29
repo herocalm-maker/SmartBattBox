@@ -37,7 +37,7 @@ static const sys_param_t s_default = {
  * @param p 待校验的参数结构体有效指针。
  * @return 参数结构体的CRC32校验值。
  */
-static uint32_t _param_crc(const sys_param_t *p)
+static uint32_t project_param_crc(const sys_param_t *p)
 {
     /* crc32 字段偏移 = offsetof(sys_param_t, crc32) = 8
      * CRC 覆盖: [magic, version] + [crc32 之后到末尾] */
@@ -72,7 +72,7 @@ static uint32_t _param_crc(const sys_param_t *p)
  * @param out 接收槽位内容的有效缓冲区指针。
  * @return true：读取和校验通过；false：读取失败或数据无效。
  */
-static bool _slot_valid(uint32_t addr, sys_param_t *out)
+static bool project_param_slot_valid(uint32_t addr, sys_param_t *out)
 {
     if (!bsp_flash_read(addr, out, sizeof(sys_param_t)))
     {
@@ -82,19 +82,31 @@ static bool _slot_valid(uint32_t addr, sys_param_t *out)
     {
         return false;
     }
-    if (_param_crc(out) != out->crc32)
+    if (project_param_crc(out) != out->crc32)
     {
         return false;
     }
     return true;
 }
 
-static bool _backup_valid(sys_param_t *out)
+static bool project_param_backup_valid(sys_param_t *out)
 {
-    if (!out) return false;
-    if (mod_storage_param_backup_read((uint8_t *)out, sizeof(sys_param_t)) != 0) return false;
-    if (out->magic != PARAM_MAGIC) return false;
-    if (_param_crc(out) != out->crc32) return false;
+    if (!out)
+    {
+        return false;
+    }
+    if (mod_storage_param_backup_read((uint8_t *)out, sizeof(sys_param_t)) != 0)
+    {
+        return false;
+    }
+    if (out->magic != PARAM_MAGIC)
+    {
+        return false;
+    }
+    if (project_param_crc(out) != out->crc32)
+    {
+        return false;
+    }
     return true;
 }
 
@@ -115,7 +127,7 @@ void param_init(void)
     sys_param_t tmp;
 
     /* 1. 尝试 primary */
-    if (_slot_valid(PARAM_PRIMARY_ADDR, &tmp))
+    if (project_param_slot_valid(PARAM_PRIMARY_ADDR, &tmp))
     {
         s_param = tmp;
         logger_out(LOG_INFO, "param: primary OK (v%lu)", (unsigned long)s_param.version);
@@ -123,7 +135,7 @@ void param_init(void)
     }
 
     /* 2. 尝试 backup */
-    if (_backup_valid(&tmp))
+    if (project_param_backup_valid(&tmp))
     {
         s_param = tmp;
         logger_out(LOG_WARN, "param: primary BAD, external backup OK");
@@ -135,7 +147,7 @@ void param_init(void)
     /* 3. 均失败 → 默认值 */
     logger_out(LOG_WARN, "param: both BAD, load defaults");
     s_param = s_default;
-    s_param.crc32 = _param_crc(&s_param);
+    s_param.crc32 = project_param_crc(&s_param);
     param_store();
 }
 
@@ -157,7 +169,7 @@ bool param_store(void)
     /* 计算 CRC (确保最新) */
     s_param.magic = PARAM_MAGIC;
     s_param.version = PARAM_VERSION;
-    s_param.crc32 = _param_crc(&s_param);
+    s_param.crc32 = project_param_crc(&s_param);
 
     /* 1. 先写外部 backup (W25Q128 扇区 0); 失败不阻断 primary */
     if (mod_storage_param_backup_write((const uint8_t *)&s_param, sizeof(s_param)) != 0)

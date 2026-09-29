@@ -30,9 +30,10 @@ static TEMP_INFO_T s_temp = {0};
  *
  * B 值方程: T = 1 / (1/T0 + ln(R/R0) / B) - 273.15
  *--------------------------------------------------------------------*/
-static int16_t _raw_to_temp(uint16_t raw)
+static int16_t mod_temp_raw_to_temp(uint16_t raw)
 {
-    if (raw == 0 || raw >= BSP_ADC_RESOLUTION) {
+    if (raw == 0 || raw >= BSP_ADC_RESOLUTION)
+    {
         return -1000;   /* 异常: 开路或短路 */
     }
 
@@ -49,13 +50,21 @@ static int16_t _raw_to_temp(uint16_t raw)
 /*--------------------------------------------------------------------
  * 内部: 更新 max_temp / max_src
  *--------------------------------------------------------------------*/
-static void _update_max(void)
+static void mod_temp_update_max(void)
 {
     int16_t max = s_temp.chg_temp;
     temp_src_enum src = TEMP_SRC_CHG;
 
-    if (s_temp.bat_temp > max) { max = s_temp.bat_temp; src = TEMP_SRC_BAT; }
-    if (s_temp.inv_temp > max) { max = s_temp.inv_temp; src = TEMP_SRC_INV; }
+    if (s_temp.bat_temp > max)
+    {
+        max = s_temp.bat_temp;
+        src = TEMP_SRC_BAT;
+    }
+    if (s_temp.inv_temp > max)
+    {
+        max = s_temp.inv_temp;
+        src = TEMP_SRC_INV;
+    }
 
     s_temp.max_temp = max;
     s_temp.max_src  = src;
@@ -78,10 +87,10 @@ bool mod_temp_init(void)
 
 void mod_temp_update(void)
 {
-    s_temp.chg_temp = _raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_CHG_TMP));
-    s_temp.bat_temp = _raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_BAT_TMP));
-    s_temp.inv_temp = _raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_INV_TMP));
-    _update_max();
+    s_temp.chg_temp = mod_temp_raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_CHG_TMP));
+    s_temp.bat_temp = mod_temp_raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_BAT_TMP));
+    s_temp.inv_temp = mod_temp_raw_to_temp(bsp_adc_get_raw_average(BSP_ADC_CH_INV_TMP));
+    mod_temp_update_max();
 }
 
 const TEMP_INFO_T* mod_temp_get(void)
