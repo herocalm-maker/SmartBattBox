@@ -7,7 +7,7 @@
  *   - 只保留面向"人机/上层决策"的统一告警位
  *   - mod_battery 内部故障状态机 (BAT_FAULT_*) 保留，由 battery 快照折叠为
  *     本位图 (alarm_bits) 供上层消费，上层不再直接读 BAT_FAULT_*
- *   - 消费方: App 层 (app_main_task / app_alarm / mod_hmi / 显示)
+ *   - 消费方: App 层 (app_main_task / app_alarm / 显示)
  */
 #ifndef SYS_ALARM_H
 #define SYS_ALARM_H

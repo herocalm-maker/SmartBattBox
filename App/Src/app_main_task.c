@@ -21,7 +21,8 @@
 #include "comm_logger.h"
 #include "Board.h"
 #include "mod_acswitch.h"
-#include "mod_hmi.h"
+#include "drv_led.h"
+#include "drv_buzzer.h"
 #include "app_alarm.h"
 
 
@@ -164,8 +165,8 @@ static void enter_fault(uint32_t alarm)
     app_alarm_merge(alarm);
     power_abort();
     state_set(SYS_STATUS_FAULT);
-    mod_hmi_alarm(true);
-    mod_hmi_buzz(3);
+    drv_led_on(LED_ALM);
+    drv_buzzer_short_sound(3);
     logger_out(LOG_ERROR, "FAULT: alarm=0x%lX", (unsigned long)app_alarm_get());
 }
 
@@ -313,7 +314,7 @@ static void input_abort(void)
 {
     app_alarm_merge(SYS_ALARM_AC_INPUT);
     power_abort();
-    mod_hmi_buzz(2);
+    drv_buzzer_short_sound(2);
     logger_out(LOG_WARN, "AC input invalid/unknown: routes off; ACOUT required to restart");
 }
 /* 关机标志阻止新的启动；此流程仅在MCU仍有供电时继续执行。 */
@@ -562,7 +563,7 @@ static void handle_onoff_key(void)
     path_begin_stop(PATH_NONE);
     logger_out(LOG_INFO, "ONOFF: 3s hold, stopping routes before power off");
     /* 保留当前关机顺序：给提示音留出时间，再撤销电源保持。 */
-    mod_hmi_buzz(1);
+    drv_buzzer_short_sound(1);
     osDelay(300);
     DEV_POWER_OFF();
     osDelay(500);
@@ -609,7 +610,7 @@ static void handle_path_key(bool charge)
         {
             s_charge_requested = keep_charge;
             s_output_requested = keep_output;
-            mod_hmi_buzz(1);
+            drv_buzzer_short_sound(1);
             display_publish();   /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
         }
         return;
@@ -619,11 +620,11 @@ static void handle_path_key(bool charge)
         logger_out(LOG_WARN, "KEY rejected: AC input unavailable");
         if (charge)
         {
-            mod_hmi_buzz_reject();
+            drv_buzzer_reject_sound();
         }
         else
         {
-            mod_hmi_buzz(2);
+            drv_buzzer_short_sound(2);
         }
         return;
     }
@@ -635,7 +636,7 @@ static void handle_path_key(bool charge)
         s_charge_requested = want_charge;
         s_output_requested = !charge;
         app_alarm_unmerge(SYS_ALARM_AC_INPUT);
-        mod_hmi_buzz(1);
+        drv_buzzer_short_sound(1);
         display_publish();   /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
     }
 }
@@ -790,7 +791,7 @@ static void work_status_process(void)
         return;
     }
 
-    mod_hmi_alarm(false);
+    drv_led_off(LED_ALM);
 }
 /* Powered MCU heartbeat, independent of the selected AC route. No delays. */
 /**
@@ -808,8 +809,8 @@ static void work_led_process(void)
     }
     if (s_shutting_down)
     {
-        mod_hmi_led(LED_SIG, false);
-        mod_hmi_led(LED_SIG2, false);
+        drv_led_off(LED_SIG);
+        drv_led_off(LED_SIG2);
         return;
     }
     uint32_t green_elapsed = (uint32_t)(now - green_since);
@@ -819,21 +820,21 @@ static void work_led_process(void)
     blue_since += (blue_elapsed / 5000u) * 5000u;
     if ((green_elapsed % 2000u) < 1000u)
     {
-        mod_hmi_led(LED_SIG, true);
+        drv_led_on(LED_SIG);
     }
     else
     {
-        mod_hmi_led(LED_SIG, false);
+        drv_led_off(LED_SIG);
     }
     /* 每个5秒周期的前600ms为三组100ms亮/100ms灭。 */
     uint32_t blue_phase = blue_elapsed % 5000u;
     if (blue_phase < 600u && (blue_phase % 200u) < 100u)
     {
-        mod_hmi_led(LED_SIG2, true);
+        drv_led_on(LED_SIG2);
     }
     else
     {
-        mod_hmi_led(LED_SIG2, false);
+        drv_led_off(LED_SIG2);
     }
 }
 
@@ -848,7 +849,7 @@ void AppMainTask(void *arg)
     param_init(); /* Legacy AC threshold settings no longer select power routes. */
     mod_acswitch_set_fan(FAN_AUX, false);
     mod_acswitch_set_fan(FAN_MAIN, false);
-    mod_hmi_alarm(false);
+    drv_led_off(LED_ALM);
     mod_key_init();
     mod_key_register_callback(_key_event_handler);
     logger_out(
