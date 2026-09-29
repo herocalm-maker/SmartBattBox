@@ -16,6 +16,12 @@
 #include "FreeRTOS.h"
 #include "cmsis_os2.h"
 
+
+#define METERING_POLL_MS          100 /* 轮询周期 (mod_metering_handler 内部有 1s 节流) */
+#define METERING_LOG_TICKS       (10000 / METERING_POLL_MS) /* 10s 打印一次 */
+
+
+
 /*====================================================================
  * 消息发送接口
  *====================================================================*/
@@ -35,8 +41,6 @@ bool Send_Msg_AppMeteringTask(ucMESSAGE_t *msg)
     return true;
 }
 
-#define METERING_POLL_MS 100 /* 轮询周期 (mod_metering_handler 内部有 1s 节流) */
-#define METERING_LOG_TICKS (10000 / METERING_POLL_MS) /* 10s 打印一次 */
 
 /**
  * @brief 按调用次数打印双路计量数据，使用整数拆分显示小数。

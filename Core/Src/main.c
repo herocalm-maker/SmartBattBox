@@ -28,7 +28,10 @@
 #include "bsp_spi.h"
 #include "bsp_io.h"
 #include "bsp_wdg.h"
-#include "bsp_boardio.h"
+#include "drv_relaysw.h"
+#include "drv_fan.h"
+#include "drv_led.h"
+#include "drv_buzzer.h"
 #include "Board.h"
 #include "comm_logger.h"
 #include <stdio.h>
@@ -172,6 +175,13 @@ int main(void)
   timer_init();
   //ADC初始化
   bsp_adc_init();
+
+  //板载GPIO器件统一初始化: 继电器/光耦(安全断电态) → 风扇 → LED → 蜂鸣器
+  drv_relay_init();    /* 含 all_off 安全时序 */
+  drv_fan_init();
+  drv_led_init();
+  drv_buzzer_init();
+  log_print("boardio: all drivers init");
 
   log_print("bsp init done, starting RTOS...");
   //

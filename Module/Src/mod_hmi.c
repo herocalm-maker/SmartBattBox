@@ -2,7 +2,7 @@
  * @file    mod_hmi.c
  * @brief   提示 / 指示薄对象实现 (Module 层)
  *
- * drv_led_init / drv_buzzer_init 已由 bsp_boardio_init 统一调用, 本模块不再重复初始化.
+ * drv_led_init / drv_buzzer_init 已在 main.c 统一调用, 本模块不再重复初始化.
  */
 #include "mod_hmi.h"
 #include "drv_buzzer.h"

@@ -28,12 +28,11 @@
 /* USER CODE BEGIN Includes */
 #include "bsp_io.h"
 
-/* Driver layer: 器件协议驱动 (薄 GPIO 器件已合并入 bsp_boardio) */
+/* Driver layer: 器件协议驱动 (继电器/风扇/LED/蜂鸣器 init 已内联至 main.c) */
 #include "drv_hlw8110.h"
 #include "drv_max17263.h"
 #include "drv_w25q128.h"
 #include "drv_pb03f.h"
-#include "bsp_boardio.h"
 #include "drv_dwin.h"
 
 /* Module layer */
@@ -102,8 +101,6 @@ static StaticQueue_t xMeteringMsgQueue;
   */
 void MX_FREERTOS_Init(void) 
 {
-  /* === BSP 板载器件层 === */
-  bsp_boardio_init();
   /* === Module 层 === */
   mod_storage_init();
   //显示屏

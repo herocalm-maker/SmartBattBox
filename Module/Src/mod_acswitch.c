@@ -2,7 +2,7 @@
  * @file    mod_acswitch.c
  * @brief   能量通路对象实现 (Module 层)
  *
- * drv_relay_init / drv_fan_init 已由 bsp_boardio_init 统一调用, 本模块不重复初始化.
+ * drv_relay_init / drv_fan_init 已在 main.c 统一调用, 本模块不重复初始化.
  */
 #include "mod_acswitch.h"
 #include "drv_relaysw.h"
