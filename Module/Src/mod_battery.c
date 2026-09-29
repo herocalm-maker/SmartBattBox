@@ -9,6 +9,16 @@
 #include "app_battery.h"
 #include "sys_alarm.h"
 #include <string.h>
+
+/* 双扇区学习日志扫描结果 (仅本文件内部使用, 不进公共头文件) */
+typedef struct
+{
+    bool found;        /* 是否找到完整匹配记录 */
+    uint32_t offset;   /* 命中记录在存储内的字节偏移 */
+    uint32_t seq;      /* 记录序号 (半范围比较处理回绕) */
+    uint8_t record[64];/* 完整64字节记录 */
+} scan_t;
+
 /*********************************************************************
  * @fn      now
  * @brief   取得应用实例的毫秒时钟。
@@ -504,13 +514,6 @@ uint32_t battery_profile_hash(const max17263_config_t *c)
 #undef H
     return h;
 }
-typedef struct
-{
-    bool found;
-    uint32_t offset;
-    uint32_t seq;
-    uint8_t record[64];
-} scan_t;
 /*********************************************************************
  * @fn      backend_valid
  * @brief   检查双扇区NOR存储后端是否完整有效。
