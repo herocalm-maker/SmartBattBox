@@ -1,9 +1,9 @@
 /**
- * @file    app_ble.h
- * @brief   BLE 通信模块
+ * @file    app_ble_task.h
+ * @brief   BLE 通信任务 (App 层)
  */
-#ifndef __APP_BLE_H__
-#define __APP_BLE_H__
+#ifndef __APP_BLE_TASK_H__
+#define __APP_BLE_TASK_H__
 
 #ifdef __cplusplus
 extern "C"
@@ -38,4 +38,4 @@ extern void BleTask(void *arg);
 #ifdef __cplusplus
 }
 #endif
-#endif /* __APP_BLE_H__ */
+#endif /* __APP_BLE_TASK_H__ */

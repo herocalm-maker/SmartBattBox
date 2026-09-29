@@ -46,7 +46,7 @@
 /* App layer */
 #include "app_main_task.h"
 #include "app_sensor_task.h"
-#include "app_ble.h"
+#include "app_ble_task.h"
 #include "app_display_task.h"
 #include "app_metering_task.h"
 

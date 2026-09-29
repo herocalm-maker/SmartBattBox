@@ -1,6 +1,6 @@
 /**
- * @file    app_ble.c
- * @brief   BLE 通信模块
+ * @file    app_ble_task.c
+ * @brief   BLE 通信任务 (App 层)
  *
  * BleTask 职责:
  *   - 拉高 PB-03F BLE 唤醒引脚并接收任务消息
@@ -8,7 +8,7 @@
  *   - 提供JSON状态上报接口，任务循环尚未调用该接口
  */
 #include "main.h"
-#include "app_ble.h"
+#include "app_ble_task.h"
 #include "app_main_task.h"
 #include "app_protect.h"
 #include "drv_pb03f.h"

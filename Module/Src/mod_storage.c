@@ -13,8 +13,11 @@
 #include "cmsis_os2.h"
 #include <string.h>
 
-/* 电池学习区总容量 (扇区数 x 4KB) */
-#define BATTERY_AREA_BYTES (STORAGE_SEC_BATTERY_COUNT * 4096u)
+/* W25Q128 扇区大小 (4KB) */
+#define STORAGE_SECTOR_BYTES 4096u
+
+/* 电池学习区总容量 (扇区数 x 扇区大小) */
+#define BATTERY_AREA_BYTES (STORAGE_SEC_BATTERY_COUNT * STORAGE_SECTOR_BYTES)
 
 /* 内部状态 */
 static osMutexId_t storage_mutex;   /* 串行化 NOR 访问的互斥锁 */
@@ -83,7 +86,7 @@ int mod_storage_battery_read(void *c, uint32_t o, uint8_t *b, size_t n)
     {
         return -1;
     }
-    bool ok = drv_w25q128_read(4096u * STORAGE_SEC_BATTERY_START + o, b, (uint32_t)n);
+    bool ok = drv_w25q128_read(STORAGE_SECTOR_BYTES * STORAGE_SEC_BATTERY_START + o, b, (uint32_t)n);
     osMutexRelease(storage_mutex);
     return ok ? 0 : -1;
 }
@@ -104,10 +107,10 @@ int mod_storage_battery_program(void *c, uint32_t o, const uint8_t *b, size_t n)
     {
         return -1;
     }
-    bool ok = drv_w25q128_write(4096u * STORAGE_SEC_BATTERY_START + o, b, (uint32_t)n);
+    bool ok = drv_w25q128_write(STORAGE_SECTOR_BYTES * STORAGE_SEC_BATTERY_START + o, b, (uint32_t)n);
     if (ok)
     {
-        ok = drv_w25q128_read(4096u * STORAGE_SEC_BATTERY_START + o, check, (uint32_t)n) &&
+        ok = drv_w25q128_read(STORAGE_SECTOR_BYTES * STORAGE_SEC_BATTERY_START + o, check, (uint32_t)n) &&
              !memcmp(b, check, n);
     }
     osMutexRelease(storage_mutex);
@@ -130,9 +133,9 @@ int mod_storage_battery_erase(void *c, unsigned sector)
         return -1;
     }
     ok = drv_w25q128_erase_sector(STORAGE_SEC_BATTERY_START + sector);
-    for (unsigned o = 0; ok && o < 4096; o += sizeof(b))
+    for (unsigned o = 0; ok && o < STORAGE_SECTOR_BYTES; o += sizeof(b))
     {
-        ok = drv_w25q128_read(4096u * (STORAGE_SEC_BATTERY_START + sector) + o, b, sizeof(b));
+        ok = drv_w25q128_read(STORAGE_SECTOR_BYTES * (STORAGE_SEC_BATTERY_START + sector) + o, b, sizeof(b));
         for (unsigned j = 0; ok && j < sizeof(b); j++)
         {
             if (b[j] != 0xFF)
@@ -157,10 +160,10 @@ int mod_storage_param_backup_write(const uint8_t *data, size_t len)
     {
         return -1;
     }
-    bool ok = drv_w25q128_erase_sector(4096u * STORAGE_SEC_CONFIG);
+    bool ok = drv_w25q128_erase_sector(STORAGE_SECTOR_BYTES * STORAGE_SEC_CONFIG);
     if (ok)
     {
-        ok = drv_w25q128_write(4096u * STORAGE_SEC_CONFIG, data, (uint32_t)len);
+        ok = drv_w25q128_write(STORAGE_SECTOR_BYTES * STORAGE_SEC_CONFIG, data, (uint32_t)len);
     }
     osMutexRelease(storage_mutex);
     return ok ? 0 : -1;
@@ -178,7 +181,7 @@ int mod_storage_param_backup_read(uint8_t *out, size_t len)
     {
         return -1;
     }
-    bool ok = drv_w25q128_read(4096u * STORAGE_SEC_CONFIG, out, (uint32_t)len);
+    bool ok = drv_w25q128_read(STORAGE_SECTOR_BYTES * STORAGE_SEC_CONFIG, out, (uint32_t)len);
     osMutexRelease(storage_mutex);
     return ok ? 0 : -1;
 }
