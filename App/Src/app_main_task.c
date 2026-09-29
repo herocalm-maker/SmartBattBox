@@ -43,6 +43,8 @@ typedef enum
     PHASE_START_INVERTER,
     PHASE_STOP_CHARGE
 } path_phase_t;
+
+
 static energy_path_t s_cur_path = PATH_NONE;
 static energy_path_t s_target_path = PATH_NONE;
 static path_phase_t s_phase = PHASE_IDLE;
@@ -370,6 +372,16 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
 /* Invoked every main-loop tick, also while keys/charger startup are pending. */
 /**
  * @brief 推进充电、逆变和旁路的非阻塞通路状态机。
+ *
+ * 每 20ms 由主循环调用; 依赖 s_phase + s_phase_since 计时推进, 不阻塞等待.
+ * 阶段语义:
+ *   PHASE_RELEASE_AC     - 撤销全部输出后等待继电器释放 (PATH_RELEASE_MS)
+ *   PHASE_RELEASE_DC     - 按是否仍带逆变输入决定释放时长, 再按目标通路开启
+ *   PHASE_START_CHARGE   - 开充电回路 + 可选旁路
+ *   PHASE_PRECHARGE      - 逆变预充 (PD4), 满 PATH_PRECHARGE_MS 后进下一阶段
+ *   PHASE_START_INVERTER - 开逆变输出 (PD7/PD0), 完成时 path_commit
+ *   PHASE_STOP_CHARGE    - 关充电输入后提交旁路
+ * 安全: 每次进入/推进前都过 path_permitted() 复查 (输入/电池/温度).
  */
 static void power_process(void)
 {
@@ -383,6 +395,14 @@ static void power_process(void)
         return;
     }
     ac_input_state_t ac = mod_metering_get_ac_input().state;
+    /* 市电状态变化(接入/掉电/未知)时立即标记 UI 脏, 主循环 display_publish 即时发
+     * EVT_DISP_ICON 刷新 ICON3(220V 图标), 不等数值 500ms 刷新周期. */
+    static ac_input_state_t s_last_ac_state = AC_INPUT_UNKNOWN;
+    if (ac != s_last_ac_state)
+    {
+        s_last_ac_state = ac;
+        s_ui_dirty = true;
+    }
     if (mod_acswitch_path_needs_ac(s_target_path) && ac != AC_INPUT_PRESENT)
     {
         input_abort();
@@ -590,6 +610,7 @@ static void handle_path_key(bool charge)
             s_charge_requested = keep_charge;
             s_output_requested = keep_output;
             mod_hmi_buzz(1);
+            display_publish();   /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
         }
         return;
     }
@@ -615,6 +636,7 @@ static void handle_path_key(bool charge)
         s_output_requested = !charge;
         app_alarm_unmerge(SYS_ALARM_AC_INPUT);
         mod_hmi_buzz(1);
+        display_publish();   /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
     }
 }
 
@@ -640,95 +662,134 @@ static void _key_event_handler(uint8_t key_code)
             break;
     }
 }
-/* Thermal control follows active/starting routes, including charge+bypass.
- * Fans continue cooling hot components after route changes and faults. */
-/**
- * @brief 处理风扇回差控制及当前通路的温度、电池保护。
- */
-static void work_status_process(void)
+/* ---- work_status_process 拆分子流程 (三段独立职责) ---- */
+
+/* 风扇滞回: 超温开, 回落到阈值下关 (温度无效则保持当前, 不误动作) */
+static void fan_hysteresis(const TEMP_INFO_T *t)
 {
-    const TEMP_INFO_T *t = mod_temp_get();
-    if (t)
-    {
-        if (!s_fan_aux_on && t->chg_temp >= BOARD_PROT_FAN_ON_TH)
-        {
-            mod_acswitch_set_fan(FAN_AUX, true);
-            s_fan_aux_on = true;
-        }
-        else if (s_fan_aux_on && t->chg_temp <= BOARD_PROT_FAN_OFF_TH)
-        {
-            mod_acswitch_set_fan(FAN_AUX, false);
-            s_fan_aux_on = false;
-        }
-        if (!s_fan_main_on &&
-            (t->inv_temp >= BOARD_PROT_FAN_ON_TH || t->bat_temp >= BOARD_PROT_FAN_ON_TH))
-        {
-            mod_acswitch_set_fan(FAN_MAIN, true);
-            s_fan_main_on = true;
-        }
-        else if (s_fan_main_on && t->inv_temp <= BOARD_PROT_FAN_OFF_TH &&
-                 t->bat_temp <= BOARD_PROT_FAN_OFF_TH)
-        {
-            mod_acswitch_set_fan(FAN_MAIN, false);
-            s_fan_main_on = false;
-        }
-    }
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    if (!t)
     {
         return;
     }
-    bool charge = mod_acswitch_path_charges(s_target_path) || mod_acswitch_relay_is_on(RELAY_CHG_IN);
-    bool invert = s_target_path == PATH_INVERT || mod_acswitch_relay_is_on(RELAY_INV_PRO) ||
-                  mod_acswitch_relay_is_on(RELAY_INV_IN);
-    if (t)
+    if (!s_fan_aux_on && t->chg_temp >= BOARD_PROT_FAN_ON_TH)
     {
-        if (s_target_path != PATH_NONE && t->bat_temp >= BOARD_PROT_BAT_TMP_FAULT_TH)
-        {
-            enter_fault(SYS_ALARM_BAT_OTP);
-            return;
-        }
-        if (charge && t->chg_temp >= BOARD_PROT_CHG_TMP_FAULT_TH)
-        {
-            enter_fault(SYS_ALARM_CHG_OTP);
-            return;
-        }
-        if (invert && t->inv_temp >= BOARD_PROT_INV_TMP_FAULT_TH)
-        {
-            enter_fault(SYS_ALARM_INV_OTP);
-            return;
-        }
+        mod_acswitch_set_fan(FAN_AUX, true);
+        s_fan_aux_on = true;
     }
-    if (charge || invert)
+    else if (s_fan_aux_on && t->chg_temp <= BOARD_PROT_FAN_OFF_TH)
     {
-        BATT_INFO_T bat = {0};
-        bool good = battery_get_snapshot(&bat);
-        uint32_t severe =
-            bat.alarm_bits & battery_path_fault_mask(charge ? PATH_CHARGE : PATH_INVERT);
-        if (!good || severe)
+        mod_acswitch_set_fan(FAN_AUX, false);
+        s_fan_aux_on = false;
+    }
+    if (!s_fan_main_on &&
+        (t->inv_temp >= BOARD_PROT_FAN_ON_TH || t->bat_temp >= BOARD_PROT_FAN_ON_TH))
+    {
+        mod_acswitch_set_fan(FAN_MAIN, true);
+        s_fan_main_on = true;
+    }
+    else if (s_fan_main_on && t->inv_temp <= BOARD_PROT_FAN_OFF_TH &&
+             t->bat_temp <= BOARD_PROT_FAN_OFF_TH)
+    {
+        mod_acswitch_set_fan(FAN_MAIN, false);
+        s_fan_main_on = false;
+    }
+}
+
+/* 温度保护: 按当前通路方向检查电池/充电/逆变过温, 触发即进故障 */
+static bool thermal_protect(const TEMP_INFO_T *t, bool charge, bool invert)
+{
+    if (!t)
+    {
+        return false;
+    }
+    if (s_target_path != PATH_NONE && t->bat_temp >= BOARD_PROT_BAT_TMP_FAULT_TH)
+    {
+        enter_fault(SYS_ALARM_BAT_OTP);
+        return true;
+    }
+    if (charge && t->chg_temp >= BOARD_PROT_CHG_TMP_FAULT_TH)
+    {
+        enter_fault(SYS_ALARM_CHG_OTP);
+        return true;
+    }
+    if (invert && t->inv_temp >= BOARD_PROT_INV_TMP_FAULT_TH)
+    {
+        enter_fault(SYS_ALARM_INV_OTP);
+        return true;
+    }
+    return false;
+}
+
+/* 电池保护: 数据无效或方向相关故障位, 延时跳闸进故障 */
+static bool battery_protect(bool charge, bool invert)
+{
+    if (!charge && !invert)
+    {
+        s_battery_trip_pending = false;
+        return false;
+    }
+    BATT_INFO_T bat = {0};
+    bool good = battery_get_snapshot(&bat);
+    uint32_t severe =
+        bat.alarm_bits & battery_path_fault_mask(charge ? PATH_CHARGE : PATH_INVERT);
+    if (!good || severe)
+    {
+        if (!s_battery_trip_pending)
         {
-            if (!s_battery_trip_pending)
-            {
-                s_battery_trip_pending = true;
-                s_battery_trip_since = HAL_GetTick();
-            }
-            /* Startup must never complete using invalid battery data. */
-            if (s_phase != PHASE_IDLE ||
-                (uint32_t)(HAL_GetTick() - s_battery_trip_since) >= BATTERY_ACTION_DELAY_MS)
-            {
-                enter_fault(SYS_ALARM_BAT_INVALID | (severe & SYS_ALARM_BAT_OVP) |
-                            (severe & SYS_ALARM_BAT_UVP));
-                return;
-            }
+            s_battery_trip_pending = true;
+            s_battery_trip_since = HAL_GetTick();
         }
-        else
+        /* Startup must never complete using invalid battery data. */
+        if (s_phase != PHASE_IDLE ||
+            (uint32_t)(HAL_GetTick() - s_battery_trip_since) >= BATTERY_ACTION_DELAY_MS)
         {
-            s_battery_trip_pending = false;
+            enter_fault(SYS_ALARM_BAT_INVALID | (severe & SYS_ALARM_BAT_OVP) |
+                        (severe & SYS_ALARM_BAT_UVP));
+            return true;
         }
     }
     else
     {
         s_battery_trip_pending = false;
     }
+    return false;
+}
+
+/* Thermal control follows active/starting routes, including charge+bypass.
+ * Fans continue cooling hot components after route changes and faults. */
+/**
+ * @brief 处理风扇回差控制及当前通路的温度、电池保护。
+ *
+ * 按顺序执行: 风扇滞回(始终) → 温度保护 → 电池保护; 任一路进故障即返回.
+ */
+static void work_status_process(void)
+{
+    const TEMP_INFO_T *t = mod_temp_get();
+
+    /* 1. 风扇滞回: 始终生效, 故障/关机后仍继续散热 */
+    fan_hysteresis(t);
+
+    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    {
+        return;
+    }
+
+    bool charge = mod_acswitch_path_charges(s_target_path) || mod_acswitch_relay_is_on(RELAY_CHG_IN);
+    bool invert = s_target_path == PATH_INVERT || mod_acswitch_relay_is_on(RELAY_INV_PRO) ||
+                  mod_acswitch_relay_is_on(RELAY_INV_IN);
+
+    /* 2. 温度保护: 按通路方向过温即跳故障 */
+    if (thermal_protect(t, charge, invert))
+    {
+        return;
+    }
+
+    /* 3. 电池保护: 数据无效/方向故障位, 延时跳闸 */
+    if (battery_protect(charge, invert))
+    {
+        return;
+    }
+
     mod_hmi_alarm(false);
 }
 /* Powered MCU heartbeat, independent of the selected AC route. No delays. */
