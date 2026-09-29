@@ -165,6 +165,15 @@ bool bsp_spi_xchg_checked(bsp_spi_port_t port,uint8_t tx,uint8_t *rx) {
     SPI_HandleTypeDef *hspi=_get_handle(port);
     return hspi && rx && HAL_SPI_TransmitReceive(hspi,&tx,rx,1,10)==HAL_OK;
 }
+
+/**
+ * @brief   单字节全双工交换 (便捷版, 忽略错误码)
+ * @param   port  SPI 端口枚举
+ * @param   tx    发送字节
+ * @return  接收字节; 端口未初始化或 HAL 失败返回 0xFF
+ * @note    内部调用 HAL_SPI_TransmitReceive, 超时 100ms;
+ *          需要区分失败/数据时改用 bsp_spi_xchg_checked
+ */
 uint8_t bsp_spi_xchg(bsp_spi_port_t port, uint8_t tx)
 {
     SPI_HandleTypeDef *hspi = _get_handle(port);

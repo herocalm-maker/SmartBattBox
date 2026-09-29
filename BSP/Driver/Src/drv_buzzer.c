@@ -44,12 +44,7 @@ void drv_buzzer_init(void)
     logger_out(LOG_INFO, "drv_buzzer: init");
 }
 
-/*********************************************************************
- * @fn      drv_buzzer_short_sound
- * @brief   普通短鸣 N 次 (时长见头文件默认配置)
- * @param   count 鸣叫次数 (1-255)
- * @return  true=成功启动
-********************************************************************/
+/* 短鸣通用模式: 按 on/off 时长生成 count 次间歇鸣叫 (关中断保护状态一致性) */
 static bool buzzer_short_pattern(uint8_t count, uint32_t on_ticks, uint32_t off_ticks)
 {
     if (count == 0) return false;
@@ -67,11 +62,22 @@ static bool buzzer_short_pattern(uint8_t count, uint32_t on_ticks, uint32_t off_
     return true;
 }
 
+/*********************************************************************
+ * @fn      drv_buzzer_short_sound
+ * @brief   普通短鸣 N 次 (单次响/停时长见头文件 BEEP_SHORT_ON/OFF_TICK)
+ * @param   count 鸣叫次数 (1-255; 0 直接返回失败)
+ * @return  true=成功启动, false=count 为 0
+********************************************************************/
 bool drv_buzzer_short_sound(uint8_t count)
 {
     return buzzer_short_pattern(count, BEEP_SHORT_ON_TICK, BEEP_SHORT_OFF_TICK);
 }
 
+/*********************************************************************
+ * @fn      drv_buzzer_reject_sound
+ * @brief   拒绝提示音: 急促 3 连鸣 (各 150ms 响/150ms 停), 用于操作被拒场景
+ * @return  true=成功启动
+********************************************************************/
 bool drv_buzzer_reject_sound(void)
 {
     return buzzer_short_pattern(3, 3u, 3u); /* 50ms tick: 150ms on / 150ms off. */
