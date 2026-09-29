@@ -52,7 +52,7 @@ typedef enum {
 
 extern bool bsp_adc_init(void);
 extern bool bsp_adc_deinit(void);
-extern bool bsp_adc_get_raw(bsp_adc_ch_enum ch);
+extern uint16_t bsp_adc_get_raw(bsp_adc_ch_enum ch);
 extern uint16_t bsp_adc_get_raw_average(bsp_adc_ch_enum ch);
 extern uint16_t bsp_adc_get_mv(bsp_adc_ch_enum ch);
 extern uint16_t bsp_adc_get_mv_average(bsp_adc_ch_enum ch);

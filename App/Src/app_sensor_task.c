@@ -97,8 +97,6 @@ void SensorTask(void *argument)
 
     for (;;)
     {
-        osDelay(SENSOR_TICK_MS);   /* 周期轮询 (空转队列已移除) */
-
         /* 1. 电池电量信息采集计量  */
         mod_battery_handler();
 
@@ -114,6 +112,8 @@ void SensorTask(void *argument)
 
         /* 通知看门狗本轮任务已完成。 */
         bsp_wdg_task_heartbeat(WDG_TASK_SENSOR);
+
+        osDelay(SENSOR_TICK_MS);   /* 周期轮询 (空转队列已移除) */
     }
 }
 

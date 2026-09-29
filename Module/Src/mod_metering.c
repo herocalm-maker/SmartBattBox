@@ -96,19 +96,26 @@ static void ac_input_update(bool success, float voltage)
 {
     uint32_t now = bsp_get_tick_ms();
     taskENTER_CRITICAL();
-    if (!success || !isfinite(voltage) || voltage < 0.0f) {
+    if (!success || !isfinite(voltage) || voltage < 0.0f)
+    {
         s_ac_input.state = AC_INPUT_UNKNOWN;
         s_ac_good_samples = 0;
-    } else {
+    }
+    else
+    {
         if ((uint32_t)(now - s_ac_input.sample_ms) > METERING_AC_STALE_MS)
             s_ac_good_samples = 0;
         s_ac_input.voltage = voltage;
         s_ac_input.sample_ms = now;
-        if (voltage >= METERING_AC_MIN_V && voltage <= METERING_AC_MAX_V) {
-            if (s_ac_good_samples < METERING_AC_CONFIRM_SAMPLES) ++s_ac_good_samples;
+        if (voltage >= METERING_AC_MIN_V && voltage <= METERING_AC_MAX_V)
+        {
+            if (s_ac_good_samples < METERING_AC_CONFIRM_SAMPLES)
+            	++s_ac_good_samples;
             s_ac_input.state = s_ac_good_samples >= METERING_AC_CONFIRM_SAMPLES ?
                                AC_INPUT_PRESENT : AC_INPUT_UNKNOWN;
-        } else {
+        }
+        else
+        {
             s_ac_good_samples = 0;
             s_ac_input.state = AC_INPUT_ABSENT; /* Revoke bypass on first bad sample. */
         }
@@ -250,11 +257,15 @@ void mod_metering_handler(void)
     for (uint32_t idx = 0; idx < METERING_IDX_CNT; idx++)
     {
         bool success = _channel_process(idx);
-        if (idx == METERING_IDX_INPUT) ac_input_update(success, s_info.vin_v);
+        if (idx == METERING_IDX_INPUT)
+        	ac_input_update(success, s_info.vin_v);
+
         if (idx == METERING_IDX_OUTPUT)
             s_info.ac_out_present = success && s_info.vout_v >= METERING_AC_MIN_V &&
                                     s_info.vout_v <= METERING_AC_MAX_V;
-        if (success) any_success = true;
+
+        if (success)
+        	any_success = true;
     }
 
     /* 在线/离线判定 (迟滞: 连续失败/成功计数) */
@@ -290,7 +301,8 @@ void mod_metering_handler(void)
             if (!drv_hlw8110_load_otp(ch->hlw))
             {
                 log_warn("Metering: ch[%s] self-check fail, reinit", ch->name);
-                if (idx == METERING_IDX_INPUT) ac_input_update(false, 0.0f);
+                if (idx == METERING_IDX_INPUT)
+                	ac_input_update(false, 0.0f);
                 drv_hlw8110_deinit(ch->hlw);
                 drv_hlw8110_init(ch->hlw, ch->uart);
             }

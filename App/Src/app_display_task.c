@@ -155,12 +155,9 @@ void DisplayTask(void *argument)
                 {
                     s_icon1_val = Msg.Paras.Value[0];
                     s_icon2_val = Msg.Paras.Value[1];
-                    display_refresh();
+                    refresh_cnt = REFRESH_DIV;
                     break;
                 }
-
-                case 0:
-                    break;
 
                 default:
                     break;

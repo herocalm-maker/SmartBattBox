@@ -104,8 +104,6 @@ void MeteringTask(void *arg)
 
     for (;;)
     {
-        osDelay(METERING_POLL_MS);   /* 100ms 轮询节拍 (空转队列已移除) */
-
         /* 读双路 HLW8110 数据 + 异常检测 */
         mod_metering_handler();
 
@@ -114,5 +112,7 @@ void MeteringTask(void *arg)
 
         /* 心跳 — 监控定时器检测任务存活 */
         bsp_wdg_task_heartbeat(WDG_TASK_METERING);
+
+        osDelay(METERING_POLL_MS);   /* 100ms 轮询节拍 (空转队列已移除) */
     }
 }
