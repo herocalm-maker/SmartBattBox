@@ -34,8 +34,9 @@
 #define PATH_RELEASE_MS 50u
 #define PATH_CONTACTOR_RELEASE_MS 100u
 #define PATH_CHARGER_START_MS 1500u      /* 充电: CHG_IN 后等充电器稳定再闭合 CHG_OUT */
-#define PATH_PRECHARGE_MS 500u           /* 逆变: PD4 预充 0.5s 后吸合 PD7 */
-#define PATH_INVERTER_START_MS 100u      /* 逆变: PD7 后 0.1s 开 PD0 输出 (PD4 保持) */
+#define PATH_PRECHARGE_MS 1500u          /* 逆变: PD4 预充 1.5s 后吸合 PD7 (需求文档) */
+#define PATH_DC_FAST_MS 500u             /* 逆变: PD7 后 0.5s 断开 PD4, 电池直连 (需求文档) */
+#define PATH_INVERTER_START_MS 1500u     /* 逆变: 直连后 1.5s 开 PD0 输出 (需求文档) */
 #define PATH_STOP_CHARGE_TAIL_MS 1500u   /* 停充: CHG_OUT 断开后 1500ms 再断 CHG_IN */
 #define PATH_STOP_INV_TAIL_MS 1500u      /* 停逆变: PD0 断开后 1500ms 再断 PD7/PD4 */
 #define PATH_INPUT_WAIT_MS 5000u
@@ -50,6 +51,7 @@ typedef enum
     PHASE_RELEASE_DC,
     PHASE_START_CHARGE,
     PHASE_PRECHARGE,
+    PHASE_START_DC,          /* 逆变: PD7 后 0.5s 断 PD4 直连 (需求文档三段时序) */
     PHASE_START_INVERTER,
     PHASE_STOP_CHARGE,
     PHASE_STOP_CHARGE_TAIL,
@@ -417,8 +419,9 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
  *   PHASE_RELEASE_AC       - 撤销全部输出后等待继电器释放 (PATH_RELEASE_MS)
  *   PHASE_RELEASE_DC       - 按是否仍带逆变输入决定释放时长, 再按目标通路开启
  *   PHASE_START_CHARGE     - 开充电回路 + 可选旁路 (CHG_IN→1500ms→CHG_OUT)
- *   PHASE_PRECHARGE      - 逆变预充 (PD4), 500ms 后吸合 PD7
- *   PHASE_START_INVERTER - PD7 后 100ms 开 PD0 输出, 完成时 path_commit
+ *   PHASE_PRECHARGE      - 逆变预充 (PD4), 1500ms 后吸合 PD7
+ *   PHASE_START_DC       - PD7 后 500ms 断开 PD4 (电池直连逆变器输入)
+ *   PHASE_START_INVERTER - 直连后 1500ms 开 PD0 输出, 完成时 path_commit
  *   PHASE_STOP_CHARGE      - 停充保留旁路: CHG_OUT 已断, 1.5s 后断 CHG_IN 提交旁路
  *   PHASE_STOP_CHARGE_TAIL - 顺序断电: 1.5s 后断 CHG_IN 再进机械释放
  *   PHASE_STOP_INV_TAIL    - 顺序断电: 1.5s 后断 PD7/PD4 再进机械释放
@@ -559,7 +562,9 @@ static void power_process(void)
                 return;
             }
             s_phase = PHASE_PRECHARGE;
-            logger_out(LOG_INFO, "INV: PD4 ON, precharge 500ms before PD7");
+            s_ui_dirty = true;
+            display_publish(); /* PD4 预充开启: 立即刷新逆变图标, 不等通路 commit */
+            logger_out(LOG_INFO, "INV: PD4 ON, precharge 1500ms before PD7");
         }
         s_phase_since = HAL_GetTick();
         return;
@@ -595,9 +600,20 @@ static void power_process(void)
         {
             return;
         }
+        s_phase = PHASE_START_DC;
+        s_phase_since = HAL_GetTick();
+        logger_out(LOG_INFO, "INV: PD7 ON, wait 500ms then PD4 off (direct connect)");
+    }
+    else if (s_phase == PHASE_START_DC)
+    {
+        if (elapsed < PATH_DC_FAST_MS || !inverter_stage_ready(ac, elapsed))
+        {
+            return;
+        }
+        drv_relay_off(RELAY_INV_PRO); /* 预充结束: 断开 PD4, 电池直连逆变器输入 */
         s_phase = PHASE_START_INVERTER;
         s_phase_since = HAL_GetTick();
-        logger_out(LOG_INFO, "INV: PD7 ON, PD4 held, wait 100ms before PD0");
+        logger_out(LOG_INFO, "INV: PD4 OFF (direct), wait 1500ms before PD0");
     }
     else if (s_phase == PHASE_START_INVERTER)
     {
@@ -639,9 +655,9 @@ static void handle_onoff_key(void)
 }
 
 /**
- * @brief 合成目标通路: 自动充电 + 输出请求 (AC IN 旁路 / AC OUT 逆变)。
+ * @brief 合成目标通路: 自动充电 + 输出请求 (有 AC 旁路 / 无 AC 逆变)。
  * @param ac 输入计量状态。
- * @param want_output 输出请求 (用户 AC 键 toggle)。
+ * @param want_output 输出请求 (用户 AC OUT 键 toggle)。
  * @param need_charge 自动充电生效 (220V 稳定且未充满)。
  * @return 应保持的目标通路。
  */
@@ -663,28 +679,21 @@ static energy_path_t resolve_target_path(ac_input_state_t ac, bool want_output, 
 }
 
 /**
- * @brief 处理 AC 键: AC IN=旁路开关(需有AC); AC OUT=逆变(有AC维持原旁路行为)。
- * @param charge true表示ACIN；false表示ACOUT。
- * @note 充电由自动策略(auto_charge_update)维护, 按键不再直接控制充电。
+ * @brief 处理 AC OUT 键 (唯一 AC 功能键): 有 220V 时旁路直接输出,
+ *        无 220V 时电池逆变输出 (互斥, 由 resolve_target_path 合成)。
+ * @note 充电由自动策略(auto_charge_update)维护, 接入 220V 自动启充/充满自停。
  */
-static void handle_path_key(bool charge)
+static void handle_path_key(void)
 {
     ac_input_state_t ac = mod_metering_get_ac_input().state;
     if (s_state == SYS_STATUS_FAULT || s_shutting_down)
     {
         return;
     }
-    if (ac == AC_INPUT_UNKNOWN || (charge && ac != AC_INPUT_PRESENT))
+    if (ac == AC_INPUT_UNKNOWN)
     {
         logger_out(LOG_WARN, "KEY rejected: AC input unavailable");
-        if (charge)
-        {
-            drv_buzzer_reject_sound();
-        }
-        else
-        {
-            drv_buzzer_short_sound(2);
-        }
+        drv_buzzer_short_sound(2);
         return;
     }
     /* 候选输出请求取反; 目标由自动充电策略合成, path_request 成功才落定. */
@@ -820,12 +829,10 @@ static void app_main_task_key_event_handler(uint8_t key_code)
         case KEY_LONG_VALUE_ONOFF:
             handle_onoff_key();
             break;
-        /* Scanner emits both press and long events. AC keys act only on press. */
-        case KEY_VALUE_ACIN:
-            handle_path_key(true);
-            break;
+        /* Scanner emits both press and long events. AC key acts only on press.
+         * 仅保留 ACOUT: 充电由接入 220V 自动触发, ACIN 不再响应. */
         case KEY_VALUE_ACOUT:
-            handle_path_key(false);
+            handle_path_key();
             break;
         default:
             break;
@@ -833,35 +840,37 @@ static void app_main_task_key_event_handler(uint8_t key_code)
 }
 /* ---- work_status_process 拆分子流程 (三段独立职责) ---- */
 
-/* 风扇滞回: 超温开, 回落到阈值下关 (温度无效则保持当前, 不误动作) */
+/* 风扇滞回: 超温开, 回落到阈值下关 (温度无效则保持当前, 不误动作)
+ * 主风扇: 电池/充电器温度超阈值开启 (需求: bat/chg 任一 >= 35℃)
+ * 辅风扇: 逆变器温度超阈值开启 (逆变/旁路输出时逆变器工作发热) */
 static void fan_hysteresis(const TEMP_INFO_T *t)
 {
     if (!t)
     {
         return;
     }
-    if (!s_fan_aux_on && t->chg_temp >= BOARD_PROT_FAN_ON_TH)
-    {
-        drv_fan_on(FAN_AUX);
-        s_fan_aux_on = true;
-    }
-    else if (s_fan_aux_on && t->chg_temp <= BOARD_PROT_FAN_OFF_TH)
-    {
-        drv_fan_off(FAN_AUX);
-        s_fan_aux_on = false;
-    }
-
     if (!s_fan_main_on &&
-        (t->inv_temp >= BOARD_PROT_FAN_ON_TH || t->bat_temp >= BOARD_PROT_FAN_ON_TH))
+        (t->bat_temp >= BOARD_PROT_FAN_ON_TH || t->chg_temp >= BOARD_PROT_FAN_ON_TH))
     {
         drv_fan_on(FAN_MAIN);
         s_fan_main_on = true;
     }
-    else if (s_fan_main_on && t->inv_temp <= BOARD_PROT_FAN_OFF_TH &&
-             t->bat_temp <= BOARD_PROT_FAN_OFF_TH)
+    else if (s_fan_main_on && t->bat_temp <= BOARD_PROT_FAN_OFF_TH &&
+             t->chg_temp <= BOARD_PROT_FAN_OFF_TH)
     {
         drv_fan_off(FAN_MAIN);
         s_fan_main_on = false;
+    }
+
+    if (!s_fan_aux_on && t->inv_temp >= BOARD_PROT_FAN_ON_TH)
+    {
+        drv_fan_on(FAN_AUX);
+        s_fan_aux_on = true;
+    }
+    else if (s_fan_aux_on && t->inv_temp <= BOARD_PROT_FAN_OFF_TH)
+    {
+        drv_fan_off(FAN_AUX);
+        s_fan_aux_on = false;
     }
 }
 
