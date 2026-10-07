@@ -739,8 +739,10 @@ static void auto_charge_update(void)
 }
 
 /**
- * @brief 逆变无负载看门狗: vout_p_w < 1W 连续 60s 自动停止输出。
- * @note 计量失效或功率恢复即清零计时; 停止后用户可再按 AC OUT 重启。
+ * @brief 逆变输出看门狗: 无负载(60s)或输出计量离线时自动停止输出。
+ * @note  - 输出 HLW8110 离线(检测不到输出) -> 立即关断
+ *        - vout_p_w < 1W 连续 60s -> 自动关断
+ *        - 关断即清除 s_output_requested, 不会自动重启, 等下次 AC OUT 键触发
  */
 static void inverter_idle_watchdog(void)
 {
@@ -753,12 +755,27 @@ static void inverter_idle_watchdog(void)
         return;
     }
     METER_INFO_T *m = metering_get_info();
-    if (!m || !m->online || m->vout_p_w >= INV_IDLE_PWR_W)
+    uint32_t now = HAL_GetTick();
+    ac_input_state_t ac = mod_metering_get_ac_input().state;
+
+    /* 输出计量离线: 检测不到输出 -> 立即关断输出并清除请求 */
+    if (!m || !m->online)
+    {
+        s_inv_idle_since = 0;
+        logger_out(LOG_WARN, "INV meter offline: output off");
+        s_output_requested = false;
+        if (path_request(PATH_NONE, ac))
+        {
+            drv_buzzer_short_sound(2);
+            display_publish();
+        }
+        return;
+    }
+    if (m->vout_p_w >= INV_IDLE_PWR_W)
     {
         s_inv_idle_since = 0;
         return;
     }
-    uint32_t now = HAL_GetTick();
     if (s_inv_idle_since == 0)
     {
         s_inv_idle_since = now;
@@ -767,7 +784,7 @@ static void inverter_idle_watchdog(void)
     {
         s_inv_idle_since = 0;
         logger_out(LOG_WARN, "INV idle %us no load: auto output off", INV_IDLE_STOP_MS / 1000u);
-        ac_input_state_t ac = mod_metering_get_ac_input().state;
+        s_output_requested = false;
         if (path_request(PATH_NONE, ac))
         {
             drv_buzzer_short_sound(2);

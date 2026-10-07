@@ -204,12 +204,55 @@ dwin_page_enum drv_dwin_get_page(void)
  * 文本显示 (VP 地址 = DWIN_VP_TEXT_BASE + offset, 发送 ASCII 字节)
  *--------------------------------------------------------------------*/
 
+/*--------------------------------------------------------------------
+ * 文本写入残留防护
+ * DWIN 文本控件不自动清尾: 写 "90MIN" 后再写 "8MIN" 会残留上次尾字符
+ * (屏显 "8MINN")。记录各 VP 上次写入长度, 写前先以空格覆盖上次内容区。
+ *--------------------------------------------------------------------*/
+#define DWIN_TEXT_SLOTS 8u   /* 最多同时跟踪的文本控件数 */
+#define DWIN_TEXT_CLEAR 32u  /* 清空格缓冲 (控件文本均 < 16 字符) */
+
+typedef struct
+{
+    uint16_t vp;   /* 文本控件 VP */
+    uint16_t len;  /* 上次写入长度 */
+} dwin_text_last_t;
+
+static dwin_text_last_t s_text_last[DWIN_TEXT_SLOTS];
+
+static uint16_t dwin_text_get_last(uint16_t vp_addr)
+{
+    for (uint8_t i = 0; i < DWIN_TEXT_SLOTS; i++)
+    {
+        if (s_text_last[i].vp == vp_addr)
+        {
+            return s_text_last[i].len;
+        }
+    }
+    return 0;
+}
+
+static void dwin_text_set_last(uint16_t vp_addr, uint16_t len)
+{
+    for (uint8_t i = 0; i < DWIN_TEXT_SLOTS; i++)
+    {
+        if (s_text_last[i].vp == vp_addr || s_text_last[i].vp == 0)
+        {
+            s_text_last[i].vp  = vp_addr;
+            s_text_last[i].len = len;
+            return;
+        }
+    }
+}
+
 /*********************************************************************
  * @fn      drv_dwin_set_text
  * @brief   在指定文本控件显示字符串
  * @param   vp_addr   VP 完整地址
  * @param   text       文本内容 (NUL 结束)
  * @return  none
+ * @note    写前先以空格覆盖上次内容区, 防止短串写入残留尾部字符;
+ *          空文本仅清空控件区 (不写内容)。
 ********************************************************************/
 void drv_dwin_set_text(uint16_t vp_addr, const char *text)
 {
@@ -222,7 +265,20 @@ void drv_dwin_set_text(uint16_t vp_addr, const char *text)
     {
         len = DWIN_TX_MAX - 4;
     }
-    dwin_write_vp(vp_addr, (const uint8_t *)text, len);
+    /* 清尾: 以空格覆盖上次内容区 (空格在透明背景上不可见) */
+    uint16_t last_len = dwin_text_get_last(vp_addr);
+    if (last_len > 0)
+    {
+        uint8_t clear[DWIN_TEXT_CLEAR];
+        memset(clear, ' ', sizeof clear);
+        uint16_t n = (last_len < DWIN_TEXT_CLEAR) ? last_len : DWIN_TEXT_CLEAR;
+        dwin_write_vp(vp_addr, clear, n);
+    }
+    if (len > 0)
+    {
+        dwin_write_vp(vp_addr, (const uint8_t *)text, len);
+    }
+    dwin_text_set_last(vp_addr, len);
 }
 
 /*********************************************************************

@@ -52,6 +52,12 @@ static uint8_t s_icon_ups = ICON_OFF; /* 0x2038 旁路 (市电直通) */
 /* 当前目标通路 (TextTime 充/放选择 + 动画使能依据) */
 static energy_path_t s_path = PATH_NONE;
 
+/* TextTime 平滑缓存: 变化 < TMIN_HYST 分钟不刷新 (MAX17263 分钟取整抖动) */
+#define TMIN_HYST 2u
+static uint16_t s_time_min_shown = 0;
+static bool     s_time_shown_valid = false;
+static uint8_t  s_time_mode = 0; /* 0=无 1=充电 2=逆变 */
+
 /*====================================================================
  * 显示刷新
  *====================================================================*/
@@ -71,10 +77,9 @@ static void display_refresh(void)
     char txt[40];
 
     /* --- 电量条: 静态图标(0x2030) 与 动画(0x2032) 互斥 ---
-     * 充电/逆变播放动画: 底层静态图标失能(写0) + 动画使能(写1)
-     * 静止(不充不放): 动画停止(写0) + 底层显示 soc/10 格静态电量 */
-    bool anim_play = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS ||
-                      s_path == PATH_INVERT);
+     * 充电: 动画播放(0x2032=1) + 底层静态失能(0x2030=0)
+     * 逆变输出/静止: 动画停止(0x2032=0) + 底层显示 soc/10 格静态电量 */
+    bool anim_play = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS);
     drv_dwin_set_value(VP_ANIM_BATT, anim_play ? ICON_ON : ICON_OFF);
     drv_dwin_set_value(VP_BATT_BAR,  anim_play ? ICON_OFF : (int16_t)(soc / 10));
 
@@ -109,31 +114,55 @@ static void display_refresh(void)
     bool overload = (m != NULL) && m->online && (m->vout_p_w > BOARD_PWR_OVERLOAD_W);
     drv_dwin_set_text(VP_TEXT_ALARM, overload ? "OVERLOAD" : "");
 
-    /* --- TextTime (0x2020): 充电显示离充满时间 / 逆变显示可用时间 (纯分钟) --- */
-    txt[0] = '\0';
-    if (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS)
+    /* --- TextTime (0x2020): 充电显示离充满时间 / 逆变显示可用时间 (纯分钟) ---
+     * 平滑: 分钟值变化 < TMIN_HYST 时不重写屏 (保持上次显示, 防跳动) */
+    uint8_t time_mode = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS) ? 1u :
+                        (s_path == PATH_INVERT) ? 2u : 0u;
+    if (time_mode != s_time_mode)
     {
-        if (bat && bat->ttf_valid && bat->time_to_full_min > 0)
+        s_time_mode = time_mode;
+        s_time_shown_valid = false; /* 模式切换: 强制刷新 */
+    }
+    if (time_mode == 1u && bat && bat->ttf_valid && bat->time_to_full_min > 0)
+    {
+        uint16_t v = bat->time_to_full_min;
+        uint16_t diff = (v >= s_time_min_shown) ? (v - s_time_min_shown) : (s_time_min_shown - v);
+        if (!s_time_shown_valid || diff >= TMIN_HYST)
         {
-            snprintf(txt, sizeof txt, "%uMIN", (unsigned)bat->time_to_full_min);
+            s_time_min_shown = v;
+            s_time_shown_valid = true;
+            snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
+            drv_dwin_set_text(VP_TEXT_TIME, txt);
+        }
+        /* 变化小于阈值: 不写屏, 控件保持上次显示 */
+    }
+    else if (time_mode == 2u && bat && bat->tte_valid && bat->time_to_empty_min > 0)
+    {
+        uint16_t v = bat->time_to_empty_min;
+        uint16_t diff = (v >= s_time_min_shown) ? (v - s_time_min_shown) : (s_time_min_shown - v);
+        if (!s_time_shown_valid || diff >= TMIN_HYST)
+        {
+            s_time_min_shown = v;
+            s_time_shown_valid = true;
+            snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
+            drv_dwin_set_text(VP_TEXT_TIME, txt);
         }
     }
-    else if (s_path == PATH_INVERT)
+    else
     {
-        if (bat && bat->tte_valid && bat->time_to_empty_min > 0)
-        {
-            snprintf(txt, sizeof txt, "%uMIN", (unsigned)bat->time_to_empty_min);
-        }
+        drv_dwin_set_text(VP_TEXT_TIME, ""); /* 无有效时间: 清空 */
     }
-    drv_dwin_set_text(VP_TEXT_TIME, txt);
 
-    /* --- TextHZ (0x2034): 逆变输出时显示频率 (取整), 不输出写空 --- */
-    txt[0] = '\0';
-    if (s_path == PATH_INVERT && m && m->online && (m->vout_freq_hz >= 1.0f))
+    /* --- TextHZ (0x2034): 逆变输出时显示频率 (0Hz 也写 0), 不输出写空 --- */
+    if (s_path == PATH_INVERT && m && m->online)
     {
         snprintf(txt, sizeof txt, "%u", (unsigned)(m->vout_freq_hz + 0.5f));
+        drv_dwin_set_text(VP_TEXT_HZ, txt);
     }
-    drv_dwin_set_text(VP_TEXT_HZ, txt);
+    else
+    {
+        drv_dwin_set_text(VP_TEXT_HZ, "");
+    }
 }
 
 /*====================================================================
