@@ -249,8 +249,8 @@ extern "C" {
 #define BOARD_PROT_BAT_TMP_FAULT_TH   550     /* 电池 55℃ 故障 */
 #define BOARD_PROT_CHG_TMP_WARN_TH    600     /* 充电器 60℃ 预警 */
 #define BOARD_PROT_CHG_TMP_FAULT_TH   750     /* 充电器 75℃ 故障 */
-#define BOARD_PROT_FAN_ON_TH          400     /* 任一温度 > 40℃ 开风扇 */
-#define BOARD_PROT_FAN_OFF_TH         350     /* 全部温度 < 35℃ 关风扇 (迟滞) */
+#define BOARD_PROT_FAN_ON_TH          350     /* 任一温度 > 35℃ 开风扇 */
+#define BOARD_PROT_FAN_OFF_TH         300     /* 全部温度 < 30℃ 关风扇 (迟滞) */
 
 //******************************************************************************************************
 //  9. 按键/蜂鸣器时序参数
