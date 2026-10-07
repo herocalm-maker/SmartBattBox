@@ -28,6 +28,7 @@
 /* Module 层 */
 #include "mod_battery.h"
 #include "mod_metering.h"
+#include "mod_temp.h"
 
 /* BSP 层 */
 #include "drv_dwin.h"
@@ -94,7 +95,15 @@ static void display_refresh(void)
     drv_dwin_set_value(VP_ICON_OUT,  s_icon_out);
     drv_dwin_set_value(VP_ICON_HZ,   s_icon_hz);
     drv_dwin_set_value(VP_ICON_UPS,  s_icon_ups);
-    drv_dwin_set_value(VP_ICON_TEMP, app_alarm_temp_high() ? ICON_TEMP_ON : ICON_OFF);
+    /* --- 温度图标 (0x200E): 任一温度 >= 风扇开启阈值(35℃) 或 OTP 故障
+     * 告警 -> 显示 8 (与 fan_hysteresis 开启条件同步, 温度过高即有显示) --- */
+    const TEMP_INFO_T *t = mod_temp_get();
+    bool temp_hot = (t != NULL &&
+                     (t->chg_temp >= BOARD_PROT_FAN_ON_TH ||
+                      t->bat_temp >= BOARD_PROT_FAN_ON_TH ||
+                      t->inv_temp >= BOARD_PROT_FAN_ON_TH)) ||
+                    app_alarm_temp_high();
+    drv_dwin_set_value(VP_ICON_TEMP, temp_hot ? ICON_TEMP_ON : ICON_OFF);
     drv_dwin_set_value(VP_ICON_TIME, ICON_TIME_ON); /* 固定显示 */
     drv_dwin_set_value(VP_ICON_BLE,  ICON_OFF);     /* 暂不显示 */
 
