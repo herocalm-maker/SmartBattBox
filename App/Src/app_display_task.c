@@ -197,6 +197,16 @@ static void display_refresh(void)
 #define DISPLAY_TICK_MS 100
 #define REFRESH_DIV 5 /* 无消息时约500ms；消息提前唤醒会缩短计数周期。 */
 
+/* 文本控件初始化清空: 开机覆盖屏端默认文本 (如 TextTime 默认 "888HMIN")
+ * 空格数取控件 VP 到下一占用 VP 的安全间隔 (≤ 间隔, 不越界相邻变量) */
+static void display_init_clear_text(void)
+{
+    drv_dwin_set_text(VP_TEXT_ERR,   "    ");          /* 0x2010~0x2011 (间隔2字) */
+    drv_dwin_set_text(VP_TEXT_ALARM, "    ");          /* 0x2012~0x2013 (间隔2字) */
+    drv_dwin_set_text(VP_TEXT_TIME,  "                "); /* 0x2020~0x202F (间隔16字) */
+    drv_dwin_set_text(VP_TEXT_HZ,    "    ");          /* 0x2034~0x2035 (间隔2字) */
+}
+
 /**
  * @brief 向显示任务队列发送消息，不等待队列空间。
  * @param msg 待发送消息，调用方需提供有效指针。
@@ -224,6 +234,7 @@ void DisplayTask(void *argument)
     ucMESSAGE_t Msg = {0};
     uint32_t refresh_cnt = 0;
 
+    display_init_clear_text(); /* 开机覆盖屏端默认文本 (888HMIN 等) */
     display_refresh();
 
     for (;;)

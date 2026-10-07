@@ -268,6 +268,10 @@ void drv_dwin_set_text(uint16_t vp_addr, const char *text)
     }
     uint16_t last_len = dwin_text_get_last(vp_addr);
     uint16_t fill = (last_len > len) ? last_len : len;
+    if (fill == 0)
+    {
+        return; /* 空文本且从未写入: 无需发帧 (0 长度帧无效) */
+    }
     uint8_t buf[DWIN_TX_MAX - 4];
     if (len > 0)
     {
