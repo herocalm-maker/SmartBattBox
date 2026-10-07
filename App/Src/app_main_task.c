@@ -711,6 +711,14 @@ static void auto_charge_update(void)
     ac_input_state_t ac = mod_metering_get_ac_input().state;
     static bool s_ac_stable;
     static uint32_t s_ac_stable_since;
+    static ac_input_state_t s_ac_log = AC_INPUT_UNKNOWN; /* 诊断: AC 状态变化日志 */
+    static bool s_chg_log = false;                       /* 诊断: need_charge 变化日志 */
+
+    if (ac != s_ac_log)
+    {
+        s_ac_log = ac;
+        logger_out(LOG_INFO, "auto chg: AC state=%d", (int)ac);
+    }
 
     if (ac == AC_INPUT_PRESENT)
     {
@@ -722,7 +730,14 @@ static void auto_charge_update(void)
         if ((uint32_t)(HAL_GetTick() - s_ac_stable_since) >= AC_STABLE_MS)
         {
             BATT_INFO_T bat = {0};
-            s_need_charge = battery_get_snapshot(&bat) && !bat.full_qualified;
+            bool snap_ok = battery_get_snapshot(&bat);
+            s_need_charge = snap_ok && !bat.full_qualified;
+            if (s_need_charge != s_chg_log)
+            {
+                s_chg_log = s_need_charge;
+                logger_out(LOG_INFO, "auto chg: need=%d ok=%d soc=%u fq=%d",
+                           (int)s_need_charge, (int)snap_ok, bat.soc, (int)bat.full_qualified);
+            }
         }
     }
     else
