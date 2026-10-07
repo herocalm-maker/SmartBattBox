@@ -58,6 +58,7 @@ static energy_path_t s_path = PATH_NONE;
 static uint16_t s_time_min_shown = 0;
 static bool     s_time_shown_valid = false;
 static uint32_t s_time_check_ms = 0;
+static energy_path_t s_path_shown = PATH_NONE; /* 上次显示的通路 (通路变化触发 TextHZ 立即清空) */
 
 /* TextHZ 节流: 1s 检测一次, 频率值变化才写屏 */
 #define TEXT_HZ_CHECK_MS 1000u
@@ -131,7 +132,19 @@ static void display_refresh(void)
 
     uint32_t now = HAL_GetTick();
 
+    /* --- 通路变化: 停止逆变输出立即清 TextHZ, 不等 1s 节流周期 --- */
+    if (s_path != s_path_shown)
+    {
+        s_path_shown = s_path;
+        if (s_path != PATH_INVERT)
+        {
+            s_hz_shown_valid = false;
+            drv_dwin_set_text(VP_TEXT_HZ, "");
+        }
+    }
+
     /* --- TextTime (0x2020): 充电显示离充满剩余时间(TTF), 其余一律显示可用时间(TTE) ---
+     * 快照有效即显示 (值 0 也显示 "0MIN", 不空显示); 仅快照无效时清空
      * 3s 节流: 分钟值变化才重写, 无变化不写屏 */
     if ((uint32_t)(now - s_time_check_ms) >= TEXT_TIME_CHECK_MS)
     {
@@ -139,15 +152,31 @@ static void display_refresh(void)
         bool chg = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS);
         uint16_t v = 0;
         bool ok = false;
-        if (chg && bat && bat->ttf_valid && bat->time_to_full_min > 0)
+        if (chg)
         {
-            v = bat->time_to_full_min;
-            ok = true;
+            if (bat && bat->ttf_valid)
+            {
+                v = bat->time_to_full_min;
+                ok = true;
+            }
+            else if (bat)
+            {
+                v = 0; /* 快照有效但 TTF 未成熟: 显示 0 兜底, 不空显示 */
+                ok = true;
+            }
         }
-        else if (!chg && bat && bat->tte_valid && bat->time_to_empty_min > 0)
+        else
         {
-            v = bat->time_to_empty_min;
-            ok = true;
+            if (bat && bat->tte_valid)
+            {
+                v = bat->time_to_empty_min;
+                ok = true;
+            }
+            else if (bat)
+            {
+                v = 0; /* 快照有效但 TTE 未成熟: 显示 0 兜底, 不空显示 */
+                ok = true;
+            }
         }
         if (ok)
         {
