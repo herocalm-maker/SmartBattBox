@@ -2,10 +2,13 @@
  * @file    app_display_task.c
  * @brief   显示任务 — 串口屏 (DWIN T5L) 驱动
  *
- * 单页显示 (0.bmp):
- *   - 数值: battery(0x2002) / inputpower(0x2022) / outputpower(0x2026)
- *   - 图标: Icon1/2显示通路状态（充满后Icon1充电图标关闭），Icon3(0x2008)显示市电接入，其余灭
- *   - 文本: Texterror(0x2030)
+ * 单页显示 (0.bmp 新界面):
+ *   - 数值: 电量(0x2002) / 输入功率(0x2014) / 输出功率(0x2016)
+ *   - 电量条: 底层静态图标(0x2030, soc/10 共 0~10 格) + 上层动画(0x2032, 充/放播放)
+ *   - 图标: 充电(0x2004) / 逆变输出(0x200A) / 频率(0x200C) / 温度(0x200E) /
+ *           时间(0x2018 固定13) / 蓝牙(0x2036 灭) / 旁路UPS(0x2038)
+ *   - 文本: 异常(0x2010 "ERRxx") / 过载(0x2012 "OVERLOAD") /
+ *           剩余时间(0x2020 "%uMIN") / 输出频率(0x2034)
  */
 #include "main.h"
 #include "FreeRTOS.h"
@@ -34,81 +37,105 @@
 /* Comm */
 #include "comm_logger.h"
 
-static const uint16_t s_icon_vp[] = {
-    VP_ICON1, VP_ICON2, VP_ICON3, VP_ICON4, VP_ICON5,
-    VP_ICON6, VP_ICON7, VP_ICON8, VP_ICON9, VP_ICON_PWR,
-};
-
-#define ICON_AC_INPUT_PRESENT 11u /* 屏端Icon3的市电接入图标索引。 */
-
-#define ICON_COUNT (sizeof(s_icon_vp) / sizeof(s_icon_vp[0]))
-
 /*====================================================================
- * 显示刷新
- * 图标: EVT_DISP_ICON 消息驱动 (按键处理时推送, 立即更新)
- * 数值: 500ms 周期刷新 (battery/metering 真实数据)
+ * 显示状态
+ * 图标/通路: EVT_DISP_ICON 消息驱动 (按键/通路切换时推送, 立即更新)
+ * 数值/文本: display_refresh 500ms 周期刷新 (真实数据)
  *====================================================================*/
 
 /* 图标状态 (EVT_DISP_ICON 消息写入) */
-static uint8_t s_icon1_val = ICON_OFF;
-static uint8_t s_icon2_val = ICON_OFF;
+static uint8_t s_icon_chg = ICON_OFF; /* 0x2004 充电 */
+static uint8_t s_icon_out = ICON_OFF; /* 0x200A 逆变输出 */
+static uint8_t s_icon_hz  = ICON_OFF; /* 0x200C 输出频率 */
+static uint8_t s_icon_ups = ICON_OFF; /* 0x2038 旁路 (市电直通) */
+
+/* 当前目标通路 (TextTime 充/放选择 + 动画使能依据) */
+static energy_path_t s_path = PATH_NONE;
+
+/*====================================================================
+ * 显示刷新
+ *====================================================================*/
 
 /**
- * @brief 刷新串口屏图标、电池SOC及输入输出功率。
+ * @brief 刷新串口屏全部显示项 (电量条/动画/图标/数值/文本)。
+ * @note  500ms 周期调用; 图标由消息驱动, 此处仅叠加充满强制关/温度固定位。
  */
 static void display_refresh(void)
 {
-    /* 电池快照: 充满状态先于图标使用 (充满则充电图标关闭+SOC显示100) */
+    /* 电池快照: 充满(FStat.FQ)时充电图标强制关闭 + SOC 显示 100 */
     BATT_INFO_T snapshot;
     BATT_INFO_T *bat = battery_get_snapshot(&snapshot) ? &snapshot : NULL;
-    bool bat_full = bat && bat->full_qualified;
-
-    /* 图标: 消息驱动状态; 充满后充电图标(Icon1)强制关闭, 不等继电器释放 */
-    drv_dwin_set_value(VP_ICON1, bat_full ? ICON_OFF : s_icon1_val);
-    drv_dwin_set_value(VP_ICON2, s_icon2_val);
-
-    /* 跟随输入HLW8110的有效市电状态，独立于ACIN/ACOUT按键。
-     * 90～300V确认有效时显示11；无输入、读取异常或数据过期时显示0。 */
-    ac_input_snapshot_t ac_input = mod_metering_get_ac_input();
-    drv_dwin_set_value(VP_ICON3,
-                       ac_input.state == AC_INPUT_PRESENT ? ICON_AC_INPUT_PRESENT : ICON_OFF);
-
-    /* Icon4及之后的未使用图标关闭，避免覆盖Icon3的市电状态。 */
-    for (uint8_t i = 3; i + 1 < ICON_COUNT; i++)
-    {
-        drv_dwin_set_value(s_icon_vp[i], ICON_OFF);
-    }
-
-    /* 数值显示: 电池 SOC + 输入/输出功率 (真实数据) */
     METER_INFO_T *m = metering_get_info();
-    /* 故障码: ERROR/ALARM 独立编码 (ERROR: 03, ALARM: 01) */
-    uint8_t ferr = app_alarm_error();
-    uint8_t falm = app_alarm_alarm();
+    bool bat_full = bat && bat->full_qualified;
+    uint8_t soc = bat_full ? 100 : (bat ? bat->soc : 0);
     char txt[40];
-    if (ferr && falm)
+
+    /* --- 电量条: 底层静态图标 0~10 格 (0%=0, 10%=1 ... 100%=10) --- */
+    drv_dwin_set_value(VP_BATT_BAR, (int16_t)(soc / 10));
+
+    /* --- 电量动画 (0x2032 使能): 充电/逆变播放, 其余停止 ---
+     * 动画内容(充电流水 ICL 11-20 / 放电闪烁 21-22)由屏端组态固定;
+     * 如需运行时切换需屏端提供动画参数可写 VP (见 VP_ANIM_BATT_CFG 说明)。 */
+    uint8_t anim_en = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS ||
+                       s_path == PATH_INVERT) ? ICON_ON : ICON_OFF;
+    drv_dwin_set_value(VP_ANIM_BATT, (int16_t)anim_en);
+
+    /* --- 图标: 消息驱动 + 充满强制关充电 / 温度固定位 --- */
+    drv_dwin_set_value(VP_ICON_CHG,  bat_full ? ICON_OFF : s_icon_chg);
+    drv_dwin_set_value(VP_ICON_OUT,  s_icon_out);
+    drv_dwin_set_value(VP_ICON_HZ,   s_icon_hz);
+    drv_dwin_set_value(VP_ICON_UPS,  s_icon_ups);
+    drv_dwin_set_value(VP_ICON_TEMP, app_alarm_temp_high() ? ICON_TEMP_ON : ICON_OFF);
+    drv_dwin_set_value(VP_ICON_TIME, ICON_TIME_ON); /* 固定显示 */
+    drv_dwin_set_value(VP_ICON_BLE,  ICON_OFF);     /* 暂不显示 */
+
+    /* --- 数值: 电量 / 输入功率 / 输出功率 --- */
+    drv_dwin_set_value(VP_BATT_SOC,        (int16_t)soc);
+    drv_dwin_set_value(VP_DATA_INPUT_PWR,  (int16_t)(m ? m->vin_p_w  : 0));
+    drv_dwin_set_value(VP_DATA_OUTPUT_PWR, (int16_t)(m ? m->vout_p_w : 0));
+
+    /* --- TextError (0x2010): 统一 ERR 码 "ERRxx", 正常写空 --- */
+    uint8_t code = app_alarm_err_code();
+    if (code != 0u)
     {
-        snprintf(txt, sizeof txt, "ERROR: %02u, ALARM: %02u", ferr, falm);
-    }
-    else if (ferr)
-    {
-        snprintf(txt, sizeof txt, "ERROR: %02u", ferr);
-    }
-    else if (falm)
-    {
-        snprintf(txt, sizeof txt, "ALARM: %02u", falm);
+        snprintf(txt, sizeof txt, "ERR%02u", code);
     }
     else
     {
-        snprintf(txt, sizeof txt, "%s", bat ? "" : "BAT DATA INVALID");
+        txt[0] = '\0';
     }
     drv_dwin_set_text(VP_TEXT_ERR, txt);
 
-    /* 温度高图标: 任一过温告警 -> 0x2017(VP_ICON_PWR) 显示图标8 */
-    drv_dwin_set_value(VP_ICON_PWR, app_alarm_temp_high() ? 8 : ICON_OFF);
-    /* 充满(FStat.FQ)时 SOC 强制显示 100; 未充满或数据无效显示当前值/0 */
-    drv_dwin_set_value(VP_BATTERY, (int16_t)(bat_full ? 100 : (bat ? bat->soc : 0)));
-    drv_dwin_set_value(VP_INPUT_POWER, (int16_t)(m ? m->vin_p_w : 0));
-    drv_dwin_set_value(VP_OUTPUT_POWER, (int16_t)(m ? m->vout_p_w : 0));
+    /* --- TextAlarm (0x2012): 输出过载显示 "OVERLOAD", 正常写空 ---
+     * 过载阈值 = 额定功率×1.1 (Board.h BOARD_PWR_OVERLOAD_W) */
+    bool overload = (m != NULL) && m->online && (m->vout_p_w > BOARD_PWR_OVERLOAD_W);
+    drv_dwin_set_text(VP_TEXT_ALARM, overload ? "OVERLOAD" : "");
+
+    /* --- TextTime (0x2020): 充电显示离充满时间 / 逆变显示可用时间 (纯分钟) --- */
+    txt[0] = '\0';
+    if (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS)
+    {
+        if (bat && bat->ttf_valid && bat->time_to_full_min > 0)
+        {
+            snprintf(txt, sizeof txt, "%uMIN", (unsigned)bat->time_to_full_min);
+        }
+    }
+    else if (s_path == PATH_INVERT)
+    {
+        if (bat && bat->tte_valid && bat->time_to_empty_min > 0)
+        {
+            snprintf(txt, sizeof txt, "%uMIN", (unsigned)bat->time_to_empty_min);
+        }
+    }
+    drv_dwin_set_text(VP_TEXT_TIME, txt);
+
+    /* --- TextHZ (0x2034): 逆变输出时显示频率 (取整), 不输出写空 --- */
+    txt[0] = '\0';
+    if (s_path == PATH_INVERT && m && m->online && (m->vout_freq_hz >= 1.0f))
+    {
+        snprintf(txt, sizeof txt, "%u", (unsigned)(m->vout_freq_hz + 0.5f));
+    }
+    drv_dwin_set_text(VP_TEXT_HZ, txt);
 }
 
 /*====================================================================
@@ -135,7 +162,7 @@ bool Send_Msg_AppDisplayTask(ucMESSAGE_t *msg)
 }
 
 /**
- * @brief 显示任务入口：响应图标消息，并按循环计数刷新数值。
+ * @brief 显示任务入口：响应通路/图标消息，并按循环计数刷新数值。
  * @param argument 任务创建参数，当前未使用。
  * @note 由RTOS调用，任务循环不返回。
  */
@@ -154,11 +181,14 @@ void DisplayTask(void *argument)
         {
             switch (Msg.MsgID)
             {
-                /* 按键图标更新 (ACIN/ACOUT 通路切换), 立即整屏刷新 */
+                /* 通路状态+图标更新 (ACIN/ACOUT 通路切换), 立即整屏刷新 */
                 case EVT_DISP_ICON:
                 {
-                    s_icon1_val = Msg.Paras.Value[0];
-                    s_icon2_val = Msg.Paras.Value[1];
+                    s_path = (energy_path_t)Msg.Paras.Value[0];
+                    s_icon_chg = Msg.Paras.Value[1];
+                    s_icon_out = Msg.Paras.Value[2];
+                    s_icon_hz  = Msg.Paras.Value[3];
+                    s_icon_ups = Msg.Paras.Value[4];
                     refresh_cnt = REFRESH_DIV;
                     break;
                 }

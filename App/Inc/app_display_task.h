@@ -20,32 +20,46 @@ extern "C"
 #include "main.h"
 
 /*====================================================================
- * VP 地址常量 (0.bmp 页面, 完整地址, 与屏端工程对齐)
+ * VP 地址常量 (0.bmp 页面新界面, 完整地址, 与屏端工程对齐)
  *====================================================================*/
 
-/* 数值变量 */
-#define VP_BATTERY 0x2002u      /* battery        Data variables */
-#define VP_INPUT_POWER 0x2022u  /* inputpower     Data variables */
-#define VP_OUTPUT_POWER 0x2026u /* outputpower    Data variables */
+/* 数值变量 (Data variables) */
+#define VP_BATT_SOC        0x2002u  /* DataVarBattPer  电池电量 0-100 */
+#define VP_DATA_INPUT_PWR  0x2014u  /* DataVarInput    输入功率 W */
+#define VP_DATA_OUTPUT_PWR 0x2016u  /* DataVarOutput   输出功率 W */
 
-/* 文本变量 */
-#define VP_TEXT_ERR 0x2030u /* Texterror      Text */
+/* 电量条: 底层静态图标 (变量图标) + 上层动画图标 */
+#define VP_BATT_BAR        0x2030u  /* VarIconBattPer    底层电量条 0~10 格 (soc/10) */
+#define VP_ANIM_BATT       0x2032u  /* AnimationiconBatt 上层动画使能 (1=播放/0=停止) */
+
+/* 电量动画参数 (起始图标索引/总帧数) 可写 VP: 屏端组态未提供, 0=未分配
+ * 若屏端支持运行时切换 充电流水(ICL 11-20)/放电闪烁(21-22), 在此填入参数地址 */
+#define VP_ANIM_BATT_CFG 0x0000u
+
+/* 文本变量 (Text) */
+#define VP_TEXT_ERR   0x2010u  /* TextError  异常提示 "ERRxx" (正常写空) */
+#define VP_TEXT_ALARM 0x2012u  /* TextAlarm  过载警报 "OVERLOAD" (正常写空) */
+#define VP_TEXT_TIME  0x2020u  /* TextTime   充电剩余充满/放电可用时间 "%uMIN" */
+#define VP_TEXT_HZ    0x2034u  /* TextHZ     逆变输出频率 (取整, 不输出写空) */
 
 /* 图标变量 (VAR Icon) */
-#define VP_ICON1 0x2004u
-#define VP_ICON2 0x2006u
-#define VP_ICON3 0x2008u
-#define VP_ICON4 0x200Au
-#define VP_ICON5 0x200Du
-#define VP_ICON6 0x200Fu
-#define VP_ICON7 0x2011u
-#define VP_ICON8 0x2013u
-#define VP_ICON9 0x2015u
-#define VP_ICON_PWR 0x2017u
+#define VP_ICON_CHG  0x2004u  /* VarIconChg   充电图标 */
+#define VP_ICON_OUT  0x200Au  /* VarIconOutput 逆变输出图标 */
+#define VP_ICON_HZ   0x200Cu  /* VarIconHZ    输出频率图标 */
+#define VP_ICON_TEMP 0x200Eu  /* VarIconTemp  温度异常图标 (过高/过低常亮) */
+#define VP_ICON_TIME 0x2018u  /* VarIconTime  时间图标 (固定 13) */
+#define VP_ICON_BLE  0x2036u  /* VarIconBle   蓝牙图标 (暂不显示) */
+#define VP_ICON_UPS  0x2038u  /* VarIconUPS   旁路输出 (市电直通) 图标 */
 
-/* 图标状态值 */
-#define ICON_OFF 0
-#define ICON_ON 1
+/* 图标状态值 (屏端 ICL 索引) */
+#define ICON_OFF      0
+#define ICON_ON       1
+#define ICON_CHG_ON   1   /* 充电图标显示值 */
+#define ICON_OUT_ON   11  /* 逆变输出图标显示值 */
+#define ICON_HZ_ON    5   /* 输出频率图标显示值 */
+#define ICON_TEMP_ON  8   /* 温度异常图标显示值 */
+#define ICON_TIME_ON  13  /* 时间图标显示值 (固定) */
+#define ICON_UPS_ON   6   /* 旁路输出图标显示值 */
 
 /**
  * @brief 向显示任务队列发送消息，不等待队列空间。

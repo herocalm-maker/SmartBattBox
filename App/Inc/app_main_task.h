@@ -42,7 +42,7 @@ typedef enum
 typedef enum
 {
     EVT_NONE = 0,
-    EVT_DISP_ICON /* DisplayTask: 图标更新 (Paras.Value[0]=ICON1, [1]=ICON2) */
+    EVT_DISP_ICON /* DisplayTask: 通路状态+图标更新 (Value[0]=通路, [1]=充电, [2]=逆变输出, [3]=频率, [4]=旁路UPS) */
 } evt_type_t;
 
 /**

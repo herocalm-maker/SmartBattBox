@@ -119,7 +119,8 @@ static void state_set(SYS_STATUS_T state)
 }
 
 /**
- * @brief 非阻塞发送继电器命令对应的图标状态，队列满时留待重试。
+ * @brief 非阻塞发送通路状态+图标消息给显示任务，队列满时留待重试。
+ * @note  图标值由目标通路语义派生 (充电/逆变/旁路); 充电图标充满后由显示端强制关闭。
  */
 static void display_publish(void)
 {
@@ -129,10 +130,13 @@ static void display_publish(void)
     }
     ucMESSAGE_t msg = {0};
     msg.MsgID = EVT_DISP_ICON;
-    msg.Length = 2;
-    /* Actual commands, not requests: charger may still be starting. */
-    msg.Paras.Value[0] = drv_relay_is_on(RELAY_CHG_OUT) ? 1 : 0;
-    msg.Paras.Value[1] = (drv_relay_is_on(RELAY_AC_CTRL) || drv_relay_is_on(RELAY_INV_OUT)) ? 2 : 0;
+    msg.Length = 5;
+    msg.Paras.Value[0] = (uint8_t)s_target_path;                       /* 通路状态 (TextTime/动画依据) */
+    msg.Paras.Value[1] = path_charges(s_target_path) ? ICON_CHG_ON : ICON_OFF;
+    msg.Paras.Value[2] = (s_target_path == PATH_INVERT) ? ICON_OUT_ON : ICON_OFF;
+    msg.Paras.Value[3] = (s_target_path == PATH_INVERT) ? ICON_HZ_ON  : ICON_OFF;
+    msg.Paras.Value[4] = (s_target_path == PATH_BYPASS ||
+                          s_target_path == PATH_CHARGE_BYPASS) ? ICON_UPS_ON : ICON_OFF;
     if (Send_Msg_AppDisplayTask(&msg))
     {
         s_ui_dirty = false;

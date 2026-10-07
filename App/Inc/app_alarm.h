@@ -37,6 +37,7 @@ uint32_t app_alarm_get(void);               /* 读取当前合并后告警位图
 /* ---- 故障/报警码派生 (供显示拼接 ERROR/ALARM 文本) ---- */
 uint8_t  app_alarm_error(void);             /* 最高优先级 ERROR 码 (1..7); 0=无 */
 uint8_t  app_alarm_alarm(void);             /* 最高优先级 ALARM 码 (1..4); 0=无 */
+uint8_t  app_alarm_err_code(void);          /* 统一 ERR 码 (1..11); 0=无 (ERROR 1-7 优先, ALARM +7 -> 8-11) */
 bool     app_alarm_temp_high(void);         /* 任一过温告警置位 */
 
 #ifdef __cplusplus

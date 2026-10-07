@@ -107,10 +107,27 @@ uint8_t app_alarm_alarm(void)
 
 /**
  * @brief  温度高判定: 任一过温告警 (电池/逆变/充电) 置位.
- * @return true = 任一 OTP 置位 (显示任务据此将 0x2017 图标置 8).
+ * @return true = 任一 OTP 置位 (显示任务据此将 0x200E 温度图标置 8).
  */
 bool app_alarm_temp_high(void)
 {
     uint32_t a = app_alarm_get();
     return (a & (SYS_ALARM_BAT_OTP | SYS_ALARM_INV_OTP | SYS_ALARM_CHG_OTP)) != 0u;
+}
+
+/**
+ * @brief  读取当前最高优先级统一 ERR 码 (新界面 TextError "ERRxx" 显示用).
+ * @note   ERROR 类保持 01-07; 无 ERROR 时 ALARM 类偏移 +7 -> 08-11
+ *         (AC_INPUT=08 / BAT_INVALID=09 / STORAGE=10 / LOW_SOC=11).
+ * @return 统一异常码 (1..11); 0 = 当前无任何异常.
+ */
+uint8_t app_alarm_err_code(void)
+{
+    uint8_t e = app_alarm_error();
+    if (e != 0u)
+    {
+        return e;
+    }
+    uint8_t a = app_alarm_alarm();
+    return (a != 0u) ? (uint8_t)(a + 7) : 0u;
 }
