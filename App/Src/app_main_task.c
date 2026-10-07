@@ -3,6 +3,7 @@
  * @brief 主任务拥有通路状态机，负责保护、按键和工作指示。
  * @note 逆变启动：PD4等待500ms，再开PD7等待100ms，最后开PD0。
  *       继电器软件状态仅表示输出命令，不代表触点反馈。
+ *       充满检测：MAX17263 FStat.FQ 置位时自动停止充电 (BY_BYPASS 保留AC直通)。
  */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -694,6 +695,7 @@ static void fan_hysteresis(const TEMP_INFO_T *t)
         drv_fan_off(FAN_AUX);
         s_fan_aux_on = false;
     }
+
     if (!s_fan_main_on &&
         (t->inv_temp >= BOARD_PROT_FAN_ON_TH || t->bat_temp >= BOARD_PROT_FAN_ON_TH))
     {
@@ -743,8 +745,7 @@ static bool battery_protect(bool charge, bool invert)
     }
     BATT_INFO_T bat = {0};
     bool good = battery_get_snapshot(&bat);
-    uint32_t severe =
-        bat.alarm_bits & battery_path_fault_mask(charge ? PATH_CHARGE : PATH_INVERT);
+    uint32_t severe = bat.alarm_bits & battery_path_fault_mask(charge ? PATH_CHARGE : PATH_INVERT);
     if (!good || severe)
     {
         if (!s_battery_trip_pending)
@@ -768,12 +769,47 @@ static bool battery_protect(bool charge, bool invert)
     return false;
 }
 
+/* 充满自动断充: FStat.FQ 上升沿检测; 仅在稳定充电态触发一次.
+ * CHARGE_BYPASS 时仅停充电保留 AC 直通输出; FQ 清零(转放电)后可再次触发. */
+static void full_charge_auto_stop(void)
+{
+    if (s_state == SYS_STATUS_FAULT || s_shutting_down || s_phase != PHASE_IDLE ||
+        !path_charges(s_target_path))
+    {
+        return;
+    }
+    BATT_INFO_T bat = {0};
+    static bool s_full_seen;
+    if (!battery_get_snapshot(&bat))
+    {
+        return;
+    }
+    if (!bat.full_qualified)
+    {
+        s_full_seen = false;
+        return;
+    }
+    if (s_full_seen)
+    {
+        return; /* 已触发过, 等待 FQ 清零后允许下一次 */
+    }
+    s_full_seen = true;
+    energy_path_t target = (s_target_path == PATH_CHARGE_BYPASS) ? PATH_BYPASS : PATH_NONE;
+    logger_out(LOG_INFO, "BAT full (FQ): auto stop charging -> path %d", (int)target);
+    ac_input_state_t ac = mod_metering_get_ac_input().state;
+    if (path_request(target, ac))
+    {
+        drv_buzzer_short_sound(1);
+        display_publish();
+    }
+}
+
 /* Thermal control follows active/starting routes, including charge+bypass.
  * Fans continue cooling hot components after route changes and faults. */
 /**
  * @brief 处理风扇回差控制及当前通路的温度、电池保护。
  *
- * 按顺序执行: 风扇滞回(始终) → 温度保护 → 电池保护; 任一路进故障即返回.
+ * 按顺序执行: 风扇滞回(始终) → 温度保护 → 电池保护 → 充满自动断充; 任一路进故障即返回.
  */
 static void work_status_process(void)
 {
@@ -802,6 +838,9 @@ static void work_status_process(void)
     {
         return;
     }
+
+    /* 4. 充满自动断充: FQ 上升沿触发, 停止充电 (BY_BYPASS 保留 AC 直通) */
+    full_charge_auto_stop();
 
     drv_led_off(LED_ALM);
 }
