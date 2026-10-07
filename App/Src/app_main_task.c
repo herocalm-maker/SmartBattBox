@@ -1,7 +1,7 @@
 /**
  * @file app_main_task.c
  * @brief 主任务拥有通路状态机，负责保护、按键和工作指示。
- * @note 逆变启动：PD4预充1500ms → PD7吸合 → 500ms后PD4关断(直连) → 1500ms后PD0输出。
+ * @note 逆变启动：PD4预充1500ms → PD7吸合 → 500ms观察(PD4保持) → 1500ms后PD0输出。
  *       正常停充/停逆变按 1.5s 顺序断电(先断输出端, 延时后断输入端/主接触器)。
  *       继电器软件状态仅表示输出命令，不代表触点反馈。
  *       充满检测：MAX17263 FStat.FQ 置位时自动停止充电 (BY_BYPASS 保留AC直通)。
@@ -35,7 +35,7 @@
 #define PATH_CONTACTOR_RELEASE_MS 100u
 #define PATH_CHARGER_START_MS 1500u      /* 充电: CHG_IN 后等充电器稳定再闭合 CHG_OUT */
 #define PATH_PRECHARGE_MS 1500u          /* 逆变: PD4 预充时长, 后吸合 PD7 */
-#define PATH_INV_STRAIGHT_MS 500u        /* 逆变: PD7 后 500ms 关断 PD4 (电池直连) */
+#define PATH_INV_STRAIGHT_MS 500u        /* 逆变: PD7 后 500ms 观察窗 (PD4 保持) */
 #define PATH_INVERTER_START_MS 1500u     /* 逆变: 直连后 1500ms 再开 PD0 输出 */
 #define PATH_STOP_CHARGE_TAIL_MS 1500u   /* 停充: CHG_OUT 断开后 1500ms 再断 CHG_IN */
 #define PATH_STOP_INV_TAIL_MS 1500u      /* 停逆变: PD0 断开后 1500ms 再断 PD7/PD4 */
@@ -416,7 +416,7 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
  *   PHASE_RELEASE_DC       - 按是否仍带逆变输入决定释放时长, 再按目标通路开启
  *   PHASE_START_CHARGE     - 开充电回路 + 可选旁路 (CHG_IN→1500ms→CHG_OUT)
  *   PHASE_PRECHARGE        - 逆变预充 (PD4), 1500ms 后吸合 PD7
- *   PHASE_INV_STRAIGHT     - 预充完成: 500ms 后关断 PD4 (电池直连)
+ *   PHASE_INV_STRAIGHT     - PD7 后 500ms 观察窗, PD4 保持供电
  *   PHASE_START_INVERTER   - 直连 1500ms 后开 PD0 输出, 完成时 path_commit
  *   PHASE_STOP_CHARGE      - 停充保留旁路: CHG_OUT 已断, 1.5s 后断 CHG_IN 提交旁路
  *   PHASE_STOP_CHARGE_TAIL - 顺序断电: 1.5s 后断 CHG_IN 再进机械释放
@@ -600,15 +600,14 @@ static void power_process(void)
     }
     else if (s_phase == PHASE_INV_STRAIGHT)
     {
-        /* 预充完成: 关断 PD4 预充回路, 电池经 PD7 主接触器直连逆变器 */
+        /* 观察窗: PD4 保持 ON, 电池经预充+主接触器持续供电, 等待电容稳定 */
         if (elapsed < PATH_INV_STRAIGHT_MS)
         {
             return;
         }
-        drv_relay_off(RELAY_INV_PRO);
         s_phase = PHASE_START_INVERTER;
         s_phase_since = HAL_GetTick();
-        logger_out(LOG_INFO, "INV: PD4 OFF (direct), wait 1500ms before PD0");
+        logger_out(LOG_INFO, "INV: PD4 held ON, wait 1500ms before PD0");
     }
     else if (s_phase == PHASE_START_INVERTER)
     {
@@ -1037,7 +1036,7 @@ void AppMainTask(void *arg)
     mod_key_init();
     mod_key_register_callback(app_main_task_key_event_handler);
     logger_out(LOG_INFO,
-               "Power controller: auto-charge(AC 2s stable), PD4->1500ms->PD7->500ms->PD4 OFF->1500ms->PD0");
+               "Power controller: auto-charge(AC 2s stable), PD4->1500ms->PD7->500ms->PD0 (PD4 held)");
     for (;;)
     {
         /* Apply source/fault changes before accepting a new key request. */
