@@ -37,6 +37,7 @@ typedef struct
     bool tte_valid; /* 放空时间是否有效 */
     bool ttf_valid; /* 充满时间是否有效 */
     bool soh_valid; /* SOH是否来自有效采样 */
+    bool full_qualified; /* 芯片FStat.FQ充满状态; 转放电后可能清零, 仅作当前状态参考 */
 } BATT_INFO_T;
 /*********************************************************************
  * @fn      mod_battery_init

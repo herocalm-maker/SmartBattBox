@@ -622,6 +622,7 @@ int drv_max17263_sample(max17263_t *dev, max17263_sample_t *sample)
         return M_ENOTREADY;
     }
     snapshot.status = (uint16_t)(raw[0] | status_end);
+    snapshot.full_qualified = (fstat & M_FSTAT_FQ) != 0;
     snapshot.timestamp_ms = dev->bus.now_ms(dev->bus.ctx);
     cap_lsb = 5000.0f / (float)dev->cfg.rsense_uohm;
     current_lsb = 1562.5f / (float)dev->cfg.rsense_uohm;

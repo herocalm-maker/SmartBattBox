@@ -79,6 +79,7 @@ enum
 #define M_POR 0x0002u
 #define M_BST 0x0008u
 #define M_ALERT_FLAGS 0xFFC4u
+#define M_FSTAT_FQ (1u << 6) /* FStat.FQ: 充电终止条件全部满足(充满), 见UG6597 End-of-Charge */
 typedef enum
 {
     M_OK = 0,
@@ -165,6 +166,7 @@ typedef struct
     bool characterized;
     bool tte_valid;
     bool ttf_valid;
+    bool full_qualified; /* FStat.FQ: 芯片判定已充满(实时状态, 转放电会清零) */
 } max17263_sample_t;
 typedef struct
 {

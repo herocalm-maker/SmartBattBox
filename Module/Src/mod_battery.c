@@ -877,6 +877,7 @@ static void publish(void *c, const battery_app_t *a)
         x.ttf_valid = s->ttf_valid;
         x.time_to_empty_min = s->tte_valid ? (uint16_t)rounded(s->tte_s / 60) : 0;
         x.time_to_full_min = s->ttf_valid ? (uint16_t)rounded(s->ttf_s / 60) : 0;
+        x.full_qualified = s->full_qualified;
     }
     /* 复制期间短暂禁止抢占，读者不会拿到一半新、一半旧的字段。 */
     taskENTER_CRITICAL();

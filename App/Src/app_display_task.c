@@ -102,7 +102,8 @@ static void display_refresh(void)
 
     /* 温度高图标: 任一过温告警 -> 0x2017(VP_ICON_PWR) 显示图标8 */
     drv_dwin_set_value(VP_ICON_PWR, app_alarm_temp_high() ? 8 : ICON_OFF);
-    drv_dwin_set_value(VP_BATTERY, (int16_t)(bat ? bat->soc : 0));
+    /* 充满(FStat.FQ)时 SOC 强制显示 100; 未充满或数据无效显示当前值/0 */
+    drv_dwin_set_value(VP_BATTERY, (int16_t)(bat ? (bat->full_qualified ? 100 : bat->soc) : 0));
     drv_dwin_set_value(VP_INPUT_POWER, (int16_t)(m ? m->vin_p_w : 0));
     drv_dwin_set_value(VP_OUTPUT_POWER, (int16_t)(m ? m->vout_p_w : 0));
 }
