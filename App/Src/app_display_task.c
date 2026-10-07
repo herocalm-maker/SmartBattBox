@@ -105,7 +105,10 @@ static void display_refresh(void)
                       t->inv_temp >= BOARD_PROT_FAN_ON_TH)) ||
                     app_alarm_temp_high();
     drv_dwin_set_value(VP_ICON_TEMP, temp_hot ? ICON_TEMP_ON : ICON_OFF);
-    drv_dwin_set_value(VP_ICON_TIME, ICON_TIME_ON); /* 固定显示 */
+    /* --- VarIconTime (0x2018): 仅充电/放电(逆变输出)时显示图标 13, 其余隐藏 --- */
+    bool time_visible = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS ||
+                         s_path == PATH_INVERT);
+    drv_dwin_set_value(VP_ICON_TIME, time_visible ? ICON_TIME_ON : ICON_OFF);
     drv_dwin_set_value(VP_ICON_BLE,  ICON_OFF);     /* 暂不显示 */
 
     /* --- 数值: 电量 / 输入功率 / 输出功率 --- */
@@ -143,8 +146,8 @@ static void display_refresh(void)
         }
     }
 
-    /* --- TextTime (0x2020): 充电显示离充满剩余时间(TTF), 其余一律显示可用时间(TTE) ---
-     * 快照有效即显示 (值 0 也显示 "0MIN", 不空显示); 仅快照无效时清空
+    /* --- TextTime (0x2020): 仅充电/放电时显示 ---
+     * 充电: 离充满剩余时间(TTF); 放电: 可用时间(TTE); 其余情况(旁路/静止)清空
      * 3s 节流: 分钟值变化才重写, 无变化不写屏 */
     if ((uint32_t)(now - s_time_check_ms) >= TEXT_TIME_CHECK_MS)
     {
@@ -152,7 +155,7 @@ static void display_refresh(void)
         bool chg = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS);
         uint16_t v = 0;
         bool ok = false;
-        if (chg)
+        if (time_visible && chg)
         {
             if (bat && bat->ttf_valid)
             {
@@ -161,11 +164,11 @@ static void display_refresh(void)
             }
             else if (bat)
             {
-                v = 0; /* 快照有效但 TTF 未成熟: 显示 0 兜底, 不空显示 */
+                v = 0; /* 快照有效但 TTF 未成熟: 显示 0 兜底 */
                 ok = true;
             }
         }
-        else
+        else if (time_visible)
         {
             if (bat && bat->tte_valid)
             {
@@ -174,7 +177,7 @@ static void display_refresh(void)
             }
             else if (bat)
             {
-                v = 0; /* 快照有效但 TTE 未成熟: 显示 0 兜底, 不空显示 */
+                v = 0; /* 快照有效但 TTE 未成熟: 显示 0 兜底 */
                 ok = true;
             }
         }
