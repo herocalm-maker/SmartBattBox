@@ -206,16 +206,16 @@ dwin_page_enum drv_dwin_get_page(void)
 
 /*--------------------------------------------------------------------
  * 文本写入残留防护
- * DWIN 文本控件不自动清尾: 写 "90MIN" 后再写 "8MIN" 会残留上次尾字符
- * (屏显 "8MINN")。记录各 VP 上次写入长度, 写前先以空格覆盖上次内容区。
+ * DWIN 文本控件不自动清尾: 写 "123MIN" 后再写 "12MIN" 会残留上次尾
+ * 字符 (屏显 "12MINN")。记录各 VP 上次写入长度, 每次按 max(上次,本次)
+ * 长度格式化写入 (尾部补空格), 一次帧完成无残留。
  *--------------------------------------------------------------------*/
 #define DWIN_TEXT_SLOTS 8u   /* 最多同时跟踪的文本控件数 */
-#define DWIN_TEXT_CLEAR 32u  /* 清空格缓冲 (控件文本均 < 16 字符) */
 
 typedef struct
 {
     uint16_t vp;   /* 文本控件 VP */
-    uint16_t len;  /* 上次写入长度 */
+    uint16_t len;  /* 上次写入的文本长度 (不含补位空格) */
 } dwin_text_last_t;
 
 static dwin_text_last_t s_text_last[DWIN_TEXT_SLOTS];
@@ -251,8 +251,9 @@ static void dwin_text_set_last(uint16_t vp_addr, uint16_t len)
  * @param   vp_addr   VP 完整地址
  * @param   text       文本内容 (NUL 结束)
  * @return  none
- * @note    写前先以空格覆盖上次内容区, 防止短串写入残留尾部字符;
- *          空文本仅清空控件区 (不写内容)。
+ * @note    按长度格式化写入: 补齐到 max(上次长度, 本次长度), 尾部补
+ *          空格一次写入, 防止短串残留上次尾字符 (如 "12MINN");
+ *          空文本写全空格清空控件区。
 ********************************************************************/
 void drv_dwin_set_text(uint16_t vp_addr, const char *text)
 {
@@ -265,19 +266,18 @@ void drv_dwin_set_text(uint16_t vp_addr, const char *text)
     {
         len = DWIN_TX_MAX - 4;
     }
-    /* 清尾: 以空格覆盖上次内容区 (空格在透明背景上不可见) */
     uint16_t last_len = dwin_text_get_last(vp_addr);
-    if (last_len > 0)
-    {
-        uint8_t clear[DWIN_TEXT_CLEAR];
-        memset(clear, ' ', sizeof clear);
-        uint16_t n = (last_len < DWIN_TEXT_CLEAR) ? last_len : DWIN_TEXT_CLEAR;
-        dwin_write_vp(vp_addr, clear, n);
-    }
+    uint16_t fill = (last_len > len) ? last_len : len;
+    uint8_t buf[DWIN_TX_MAX - 4];
     if (len > 0)
     {
-        dwin_write_vp(vp_addr, (const uint8_t *)text, len);
+        memcpy(buf, text, len);
     }
+    if (fill > len)
+    {
+        memset(buf + len, ' ', (size_t)(fill - len)); /* 尾部空格覆盖残留区 */
+    }
+    dwin_write_vp(vp_addr, buf, fill);
     dwin_text_set_last(vp_addr, len);
 }
 
