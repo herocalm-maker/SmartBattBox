@@ -70,15 +70,13 @@ static void display_refresh(void)
     uint8_t soc = bat_full ? 100 : (bat ? bat->soc : 0);
     char txt[40];
 
-    /* --- 电量条: 底层静态图标 0~10 格 (0%=0, 10%=1 ... 100%=10) --- */
-    drv_dwin_set_value(VP_BATT_BAR, (int16_t)(soc / 10));
-
-    /* --- 电量动画 (0x2032 使能): 充电/逆变播放, 其余停止 ---
-     * 动画内容(充电流水 ICL 11-20 / 放电闪烁 21-22)由屏端组态固定;
-     * 如需运行时切换需屏端提供动画参数可写 VP (见 VP_ANIM_BATT_CFG 说明)。 */
-    uint8_t anim_en = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS ||
-                       s_path == PATH_INVERT) ? ICON_ON : ICON_OFF;
-    drv_dwin_set_value(VP_ANIM_BATT, (int16_t)anim_en);
+    /* --- 电量条: 静态图标(0x2030) 与 动画(0x2032) 互斥 ---
+     * 充电/逆变播放动画: 底层静态图标失能(写0) + 动画使能(写1)
+     * 静止(不充不放): 动画停止(写0) + 底层显示 soc/10 格静态电量 */
+    bool anim_play = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS ||
+                      s_path == PATH_INVERT);
+    drv_dwin_set_value(VP_ANIM_BATT, anim_play ? ICON_ON : ICON_OFF);
+    drv_dwin_set_value(VP_BATT_BAR,  anim_play ? ICON_OFF : (int16_t)(soc / 10));
 
     /* --- 图标: 消息驱动 + 充满强制关充电 / 温度固定位 --- */
     drv_dwin_set_value(VP_ICON_CHG,  bat_full ? ICON_OFF : s_icon_chg);
