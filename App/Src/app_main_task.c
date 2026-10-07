@@ -554,6 +554,9 @@ static void power_process(void)
                 return;
             }
             s_phase = PHASE_START_CHARGE;
+            s_ui_dirty = true;
+            display_publish(); /* 充电启动: 立即刷新充电图标, 不等通路 commit */
+            logger_out(LOG_INFO, "CHG: CHG_IN ON, charge 1500ms before CHG_OUT");
         }
         else
         {
