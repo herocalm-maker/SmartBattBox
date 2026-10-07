@@ -629,6 +629,7 @@ static void handle_onoff_key(void)
     /* 关机: 立即全断, 不等顺序断电尾段 (MCU 即将断电) */
     drv_relay_all_off();
     path_begin_stop(PATH_NONE);
+    mod_battery_led_mask(0); /* 关机: 熄灭 MAX17263 电量 LED (开机 init 恢复 SOC 模式) */
     logger_out(LOG_INFO, "ONOFF: 3s hold, stopping routes before power off");
     /* 保留当前关机顺序：给提示音留出时间，再撤销电源保持。 */
     drv_buzzer_short_sound(1);
