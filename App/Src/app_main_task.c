@@ -596,7 +596,7 @@ static void power_process(void)
         }
         s_phase = PHASE_INV_STRAIGHT;
         s_phase_since = HAL_GetTick();
-        logger_out(LOG_INFO, "INV: PD7 ON, wait 500ms then PD4 OFF (direct)");
+        logger_out(LOG_INFO, "INV: PD7 ON, PD4 held, 500ms observe before PD0");
     }
     else if (s_phase == PHASE_INV_STRAIGHT)
     {
