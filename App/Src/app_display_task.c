@@ -4,7 +4,7 @@
  *
  * 单页显示 (0.bmp):
  *   - 数值: battery(0x2002) / inputpower(0x2022) / outputpower(0x2026)
- *   - 图标: Icon1/2显示通路状态，Icon3(0x2008)显示市电接入，其余灭
+ *   - 图标: Icon1/2显示通路状态（充满后Icon1充电图标关闭），Icon3(0x2008)显示市电接入，其余灭
  *   - 文本: Texterror(0x2030)
  */
 #include "main.h"
@@ -58,8 +58,13 @@ static uint8_t s_icon2_val = ICON_OFF;
  */
 static void display_refresh(void)
 {
-    /* 图标: 消息驱动状态 */
-    drv_dwin_set_value(VP_ICON1, s_icon1_val);
+    /* 电池快照: 充满状态先于图标使用 (充满则充电图标关闭+SOC显示100) */
+    BATT_INFO_T snapshot;
+    BATT_INFO_T *bat = battery_get_snapshot(&snapshot) ? &snapshot : NULL;
+    bool bat_full = bat && bat->full_qualified;
+
+    /* 图标: 消息驱动状态; 充满后充电图标(Icon1)强制关闭, 不等继电器释放 */
+    drv_dwin_set_value(VP_ICON1, bat_full ? ICON_OFF : s_icon1_val);
     drv_dwin_set_value(VP_ICON2, s_icon2_val);
 
     /* 跟随输入HLW8110的有效市电状态，独立于ACIN/ACOUT按键。
@@ -75,8 +80,6 @@ static void display_refresh(void)
     }
 
     /* 数值显示: 电池 SOC + 输入/输出功率 (真实数据) */
-    BATT_INFO_T snapshot;
-    BATT_INFO_T *bat = battery_get_snapshot(&snapshot) ? &snapshot : NULL;
     METER_INFO_T *m = metering_get_info();
     /* 故障码: ERROR/ALARM 独立编码 (ERROR: 03, ALARM: 01) */
     uint8_t ferr = app_alarm_error();
@@ -103,7 +106,7 @@ static void display_refresh(void)
     /* 温度高图标: 任一过温告警 -> 0x2017(VP_ICON_PWR) 显示图标8 */
     drv_dwin_set_value(VP_ICON_PWR, app_alarm_temp_high() ? 8 : ICON_OFF);
     /* 充满(FStat.FQ)时 SOC 强制显示 100; 未充满或数据无效显示当前值/0 */
-    drv_dwin_set_value(VP_BATTERY, (int16_t)(bat ? (bat->full_qualified ? 100 : bat->soc) : 0));
+    drv_dwin_set_value(VP_BATTERY, (int16_t)(bat_full ? 100 : (bat ? bat->soc : 0)));
     drv_dwin_set_value(VP_INPUT_POWER, (int16_t)(m ? m->vin_p_w : 0));
     drv_dwin_set_value(VP_OUTPUT_POWER, (int16_t)(m ? m->vout_p_w : 0));
 }
