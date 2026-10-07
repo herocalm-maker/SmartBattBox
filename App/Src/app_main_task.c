@@ -1,9 +1,11 @@
 /**
  * @file app_main_task.c
  * @brief 主任务拥有通路状态机，负责保护、按键和工作指示。
- * @note 逆变启动：PD4等待500ms，再开PD7等待100ms，最后开PD0。
+ * @note 逆变启动：PD4预充1500ms → PD7吸合 → 500ms后PD4关断(直连) → 1500ms后PD0输出。
+ *       正常停充/停逆变按 1.5s 顺序断电(先断输出端, 延时后断输入端/主接触器)。
  *       继电器软件状态仅表示输出命令，不代表触点反馈。
  *       充满检测：MAX17263 FStat.FQ 置位时自动停止充电 (BY_BYPASS 保留AC直通)。
+ *       按键: AC IN=旁路开关; AC OUT=逆变(有AC维持旁路); 充电自动(220V稳定2s后)。
  */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -28,13 +30,19 @@
 #include "app_alarm.h"
 
 
-/* Bench-validation defaults, not verified contact/charger/inverter timings. */
+/* 时序: 依据需求文档 (充电1.5s / 逆变预充1.5s-直连0.5s-输出1.5s / 顺序断电1.5s) */
 #define PATH_RELEASE_MS 50u
 #define PATH_CONTACTOR_RELEASE_MS 100u
-#define PATH_PRECHARGE_MS 500u
-#define PATH_INVERTER_START_MS 100u
-#define PATH_CHARGER_START_MS 1500u
+#define PATH_CHARGER_START_MS 1500u      /* 充电: CHG_IN 后等充电器稳定再闭合 CHG_OUT */
+#define PATH_PRECHARGE_MS 1500u          /* 逆变: PD4 预充时长, 后吸合 PD7 */
+#define PATH_INV_STRAIGHT_MS 500u        /* 逆变: PD7 后 500ms 关断 PD4 (电池直连) */
+#define PATH_INVERTER_START_MS 1500u     /* 逆变: 直连后 1500ms 再开 PD0 输出 */
+#define PATH_STOP_CHARGE_TAIL_MS 1500u   /* 停充: CHG_OUT 断开后 1500ms 再断 CHG_IN */
+#define PATH_STOP_INV_TAIL_MS 1500u      /* 停逆变: PD0 断开后 1500ms 再断 PD7/PD4 */
 #define PATH_INPUT_WAIT_MS 5000u
+#define AC_STABLE_MS 2000u               /* 自动充电: 220V 稳定 2s 后启充 (防抖) */
+#define INV_IDLE_STOP_MS 60000u          /* 逆变: 无输出功率 60s 自动停 */
+#define INV_IDLE_PWR_W 1                 /* 无输出功率判定阈值, W */
 
 typedef enum
 {
@@ -43,8 +51,11 @@ typedef enum
     PHASE_RELEASE_DC,
     PHASE_START_CHARGE,
     PHASE_PRECHARGE,
+    PHASE_INV_STRAIGHT,
     PHASE_START_INVERTER,
-    PHASE_STOP_CHARGE
+    PHASE_STOP_CHARGE,
+    PHASE_STOP_CHARGE_TAIL,
+    PHASE_STOP_INV_TAIL
 } path_phase_t;
 
 /* 通路语义判定 (原 mod_acswitch 迁入, 纯逻辑无驱动依赖) */
@@ -63,8 +74,9 @@ static energy_path_t s_cur_path = PATH_NONE;
 static energy_path_t s_target_path = PATH_NONE;
 static path_phase_t s_phase = PHASE_IDLE;
 static uint32_t s_phase_since;
-static bool s_charge_requested;
-static bool s_output_requested;
+static bool s_output_requested; /* 旁路/逆变输出请求 (AC IN/AC OUT 键 toggle) */
+static bool s_need_charge;     /* 自动充电生效标志 (auto_charge_update 维护) */
+static uint32_t s_inv_idle_since; /* 逆变无功率计时起点, 0=未计时 */
 static bool s_shutting_down;
 static bool s_shutdown_complete;
 static uint32_t s_dc_release_ms = PATH_RELEASE_MS;
@@ -164,7 +176,7 @@ static void path_commit(energy_path_t path)
 static void power_abort(void)
 {
     drv_relay_all_off();
-    s_charge_requested = s_output_requested = false;
+    s_output_requested = false;
     s_battery_trip_pending = false;
     path_commit(PATH_NONE); /* Also cancels every delayed close operation. */
 }
@@ -253,13 +265,24 @@ static void path_begin_stop(energy_path_t target)
     drv_relay_off(RELAY_INV_OUT);
     drv_relay_off(RELAY_AC_CTRL);
     drv_relay_off(RELAY_CHG_OUT);
-    drv_relay_all_off();
-    /* 全部输出已撤销；后续阶段仅等待释放，再判断是否开启目标通路。 */
+    /* 顺序断电: 输出端已断, 输入端/主接触器按 1.5s 尾段延时断开, 防反灌/拉弧.
+     * 紧急路径(power_abort)仍立即全断. */
     s_cur_path = PATH_NONE;
-    s_phase = PHASE_RELEASE_AC;
     s_phase_since = HAL_GetTick();
     state_set(SYS_STATUS_SWITCHING);
     s_ui_dirty = true;
+    if (drv_relay_is_on(RELAY_INV_IN))
+    {
+        s_phase = PHASE_STOP_INV_TAIL;
+    }
+    else if (drv_relay_is_on(RELAY_CHG_IN))
+    {
+        s_phase = PHASE_STOP_CHARGE_TAIL;
+    }
+    else
+    {
+        s_phase = PHASE_RELEASE_AC;
+    }
 }
 /* A request never sleeps. Stable CHARGE <-> CHARGE_BYPASS preserves charging. */
 /**
@@ -389,12 +412,15 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
  *
  * 每 20ms 由主循环调用; 依赖 s_phase + s_phase_since 计时推进, 不阻塞等待.
  * 阶段语义:
- *   PHASE_RELEASE_AC     - 撤销全部输出后等待继电器释放 (PATH_RELEASE_MS)
- *   PHASE_RELEASE_DC     - 按是否仍带逆变输入决定释放时长, 再按目标通路开启
- *   PHASE_START_CHARGE   - 开充电回路 + 可选旁路
- *   PHASE_PRECHARGE      - 逆变预充 (PD4), 满 PATH_PRECHARGE_MS 后进下一阶段
- *   PHASE_START_INVERTER - 开逆变输出 (PD7/PD0), 完成时 path_commit
- *   PHASE_STOP_CHARGE    - 关充电输入后提交旁路
+ *   PHASE_RELEASE_AC       - 撤销全部输出后等待继电器释放 (PATH_RELEASE_MS)
+ *   PHASE_RELEASE_DC       - 按是否仍带逆变输入决定释放时长, 再按目标通路开启
+ *   PHASE_START_CHARGE     - 开充电回路 + 可选旁路 (CHG_IN→1500ms→CHG_OUT)
+ *   PHASE_PRECHARGE        - 逆变预充 (PD4), 1500ms 后吸合 PD7
+ *   PHASE_INV_STRAIGHT     - 预充完成: 500ms 后关断 PD4 (电池直连)
+ *   PHASE_START_INVERTER   - 直连 1500ms 后开 PD0 输出, 完成时 path_commit
+ *   PHASE_STOP_CHARGE      - 停充保留旁路: CHG_OUT 已断, 1.5s 后断 CHG_IN 提交旁路
+ *   PHASE_STOP_CHARGE_TAIL - 顺序断电: 1.5s 后断 CHG_IN 再进机械释放
+ *   PHASE_STOP_INV_TAIL    - 顺序断电: 1.5s 后断 PD7/PD4 再进机械释放
  * 安全: 每次进入/推进前都过 path_permitted() 复查 (输入/电池/温度).
  */
 static void power_process(void)
@@ -438,12 +464,38 @@ static void power_process(void)
     uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
     if (s_phase == PHASE_STOP_CHARGE)
     {
-        if (elapsed < PATH_RELEASE_MS)
+        /* 停充保留旁路: CHG_OUT 已断, 1.5s 后再断 CHG_IN 并提交旁路 */
+        if (elapsed < PATH_STOP_CHARGE_TAIL_MS)
         {
             return;
         }
         drv_relay_off(RELAY_CHG_IN);
         path_commit(PATH_BYPASS);
+        return;
+    }
+    if (s_phase == PHASE_STOP_CHARGE_TAIL)
+    {
+        /* 顺序断电尾段: 1.5s 后断充电输入, 再进入机械释放 */
+        if (elapsed < PATH_STOP_CHARGE_TAIL_MS)
+        {
+            return;
+        }
+        drv_relay_off(RELAY_CHG_IN);
+        s_phase = PHASE_RELEASE_AC;
+        s_phase_since = HAL_GetTick();
+        return;
+    }
+    if (s_phase == PHASE_STOP_INV_TAIL)
+    {
+        /* 顺序断电尾段: 1.5s 后断主接触器与预充, 再进入机械释放 */
+        if (elapsed < PATH_STOP_INV_TAIL_MS)
+        {
+            return;
+        }
+        drv_relay_off(RELAY_INV_IN);
+        drv_relay_off(RELAY_INV_PRO);
+        s_phase = PHASE_RELEASE_AC;
+        s_phase_since = HAL_GetTick();
         return;
     }
     if (s_phase == PHASE_RELEASE_AC)
@@ -506,7 +558,7 @@ static void power_process(void)
                 return;
             }
             s_phase = PHASE_PRECHARGE;
-            logger_out(LOG_INFO, "INV: PD4 ON, wait 500ms before PD7");
+            logger_out(LOG_INFO, "INV: PD4 ON, precharge 1500ms before PD7");
         }
         s_phase_since = HAL_GetTick();
         return;
@@ -542,9 +594,21 @@ static void power_process(void)
         {
             return;
         }
+        s_phase = PHASE_INV_STRAIGHT;
+        s_phase_since = HAL_GetTick();
+        logger_out(LOG_INFO, "INV: PD7 ON, wait 500ms then PD4 OFF (direct)");
+    }
+    else if (s_phase == PHASE_INV_STRAIGHT)
+    {
+        /* 预充完成: 关断 PD4 预充回路, 电池经 PD7 主接触器直连逆变器 */
+        if (elapsed < PATH_INV_STRAIGHT_MS)
+        {
+            return;
+        }
+        drv_relay_off(RELAY_INV_PRO);
         s_phase = PHASE_START_INVERTER;
         s_phase_since = HAL_GetTick();
-        logger_out(LOG_INFO, "INV: PD7 ON, PD4 held ON, wait 100ms before PD0");
+        logger_out(LOG_INFO, "INV: PD4 OFF (direct), wait 1500ms before PD0");
     }
     else if (s_phase == PHASE_START_INVERTER)
     {
@@ -571,8 +635,10 @@ static void handle_onoff_key(void)
     }
     s_shutting_down = true;
     s_shutdown_complete = false;
-    s_charge_requested = s_output_requested = false;
+    s_output_requested = false;
     s_battery_trip_pending = false;
+    /* 关机: 立即全断, 不等顺序断电尾段 (MCU 即将断电) */
+    drv_relay_all_off();
     path_begin_stop(PATH_NONE);
     logger_out(LOG_INFO, "ONOFF: 3s hold, stopping routes before power off");
     /* 保留当前关机顺序：给提示音留出时间，再撤销电源保持。 */
@@ -583,49 +649,39 @@ static void handle_onoff_key(void)
 }
 
 /**
- * @brief 解析 ACOUT 请求的目标通路 (依赖 AC 输入状态与充电保持意愿)。
+ * @brief 合成目标通路: 自动充电 + 输出请求 (AC IN 旁路 / AC OUT 逆变)。
+ * @param ac 输入计量状态。
+ * @param want_output 输出请求 (用户 AC 键 toggle)。
+ * @param need_charge 自动充电生效 (220V 稳定且未充满)。
+ * @return 应保持的目标通路。
  */
-static energy_path_t resolve_target(bool charge, ac_input_state_t ac, bool want_charge)
+static energy_path_t resolve_target_path(ac_input_state_t ac, bool want_output, bool need_charge)
 {
-    if (charge)
+    if (ac != AC_INPUT_PRESENT)
+    {
+        return want_output ? PATH_INVERT : PATH_NONE; /* 无AC: 仅逆变请求有效 */
+    }
+    if (need_charge && want_output)
+    {
+        return PATH_CHARGE_BYPASS; /* 旁路 + 自动充电 */
+    }
+    if (need_charge)
+    {
         return PATH_CHARGE;
-    if (ac == AC_INPUT_PRESENT)
-        return want_charge ? PATH_CHARGE_BYPASS : PATH_BYPASS;
-    return PATH_INVERT;
+    }
+    return want_output ? PATH_BYPASS : PATH_NONE;
 }
 
 /**
- * @brief 处理ACIN/ACOUT切换请求，支持启动过程中取消。
+ * @brief 处理 AC 键: AC IN=旁路开关(需有AC); AC OUT=逆变(有AC维持原旁路行为)。
  * @param charge true表示ACIN；false表示ACOUT。
+ * @note 充电由自动策略(auto_charge_update)维护, 按键不再直接控制充电。
  */
 static void handle_path_key(bool charge)
 {
     ac_input_state_t ac = mod_metering_get_ac_input().state;
     if (s_state == SYS_STATUS_FAULT || s_shutting_down)
     {
-        return;
-    }
-
-    /* Toggle the accepted request, including startup, not just closed contacts.
-     * An OFF press is never rejected because input detection is unavailable. */
-    if (charge ? s_charge_requested : s_output_requested)
-    {
-        bool keep_charge = !charge && s_charge_requested && ac == AC_INPUT_PRESENT;
-        bool keep_output = charge && s_output_requested && ac == AC_INPUT_PRESENT;
-        energy_path_t target;
-        if (keep_charge)
-            target = PATH_CHARGE;
-        else if (keep_output)
-            target = PATH_BYPASS;
-        else
-            target = PATH_NONE;
-        if (path_request(target, ac))
-        {
-            s_charge_requested = keep_charge;
-            s_output_requested = keep_output;
-            drv_buzzer_short_sound(1);
-            display_publish();   /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
-        }
         return;
     }
     if (ac == AC_INPUT_UNKNOWN || (charge && ac != AC_INPUT_PRESENT))
@@ -641,16 +697,93 @@ static void handle_path_key(bool charge)
         }
         return;
     }
-    /* ACIN ON retains the original charge-only policy; ACOUT ON preserves charge. */
-    bool want_charge = charge || (ac == AC_INPUT_PRESENT && s_charge_requested);
-    energy_path_t target = resolve_target(charge, ac, want_charge);
+    /* 候选输出请求取反; 目标由自动充电策略合成, path_request 成功才落定. */
+    bool new_out = !s_output_requested;
+    energy_path_t target = resolve_target_path(ac, new_out, s_need_charge);
     if (path_request(target, ac))
     {
-        s_charge_requested = want_charge;
-        s_output_requested = !charge;
+        s_output_requested = new_out;
         app_alarm_unmerge(SYS_ALARM_AC_INPUT);
         drv_buzzer_short_sound(1);
-        display_publish();   /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
+        display_publish(); /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
+    }
+}
+
+/**
+ * @brief 自动充电策略: 220V 稳定 2s 且未充满时启用充电, 与输出请求合成目标。
+ * @note 每 20ms tick 调用; 防抖计时在 AC 波动时清零; 充满/无AC 自动收敛停充。
+ */
+static void auto_charge_update(void)
+{
+    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    {
+        return;
+    }
+    ac_input_state_t ac = mod_metering_get_ac_input().state;
+    static bool s_ac_stable;
+    static uint32_t s_ac_stable_since;
+
+    if (ac == AC_INPUT_PRESENT)
+    {
+        if (!s_ac_stable)
+        {
+            s_ac_stable = true;
+            s_ac_stable_since = HAL_GetTick();
+        }
+        if ((uint32_t)(HAL_GetTick() - s_ac_stable_since) >= AC_STABLE_MS)
+        {
+            BATT_INFO_T bat = {0};
+            s_need_charge = battery_get_snapshot(&bat) && !bat.full_qualified;
+        }
+    }
+    else
+    {
+        s_ac_stable = false;
+        s_need_charge = false;
+    }
+
+    energy_path_t target = resolve_target_path(ac, s_output_requested, s_need_charge);
+    if (target != s_target_path)
+    {
+        path_request(target, ac); /* 内部短路; 成功后主循环 display_publish 同步图标 */
+    }
+}
+
+/**
+ * @brief 逆变无负载看门狗: vout_p_w < 1W 连续 60s 自动停止输出。
+ * @note 计量失效或功率恢复即清零计时; 停止后用户可再按 AC OUT 重启。
+ */
+static void inverter_idle_watchdog(void)
+{
+    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    {
+        return;
+    }
+    if (s_target_path != PATH_INVERT)
+    {
+        return;
+    }
+    METER_INFO_T *m = metering_get_info();
+    if (!m || !m->online || m->vout_p_w >= INV_IDLE_PWR_W)
+    {
+        s_inv_idle_since = 0;
+        return;
+    }
+    uint32_t now = HAL_GetTick();
+    if (s_inv_idle_since == 0)
+    {
+        s_inv_idle_since = now;
+    }
+    if ((uint32_t)(now - s_inv_idle_since) >= INV_IDLE_STOP_MS)
+    {
+        s_inv_idle_since = 0;
+        logger_out(LOG_WARN, "INV idle %us no load: auto output off", INV_IDLE_STOP_MS / 1000u);
+        ac_input_state_t ac = mod_metering_get_ac_input().state;
+        if (path_request(PATH_NONE, ac))
+        {
+            drv_buzzer_short_sound(2);
+            display_publish();
+        }
     }
 }
 
@@ -903,14 +1036,15 @@ void AppMainTask(void *arg)
     drv_led_off(LED_ALM);
     mod_key_init();
     mod_key_register_callback(app_main_task_key_event_handler);
-    logger_out(
-        LOG_INFO,
-        "Power controller: AC=90..300V, PD4 -> 500ms -> PD7 -> 100ms -> PD0; PD4 held ON");
+    logger_out(LOG_INFO,
+               "Power controller: auto-charge(AC 2s stable), PD4->1500ms->PD7->500ms->PD4 OFF->1500ms->PD0");
     for (;;)
     {
         /* Apply source/fault changes before accepting a new key request. */
         work_status_process();
         power_process();
+        auto_charge_update();
+        inverter_idle_watchdog();
         mod_key_poll_handler();
         work_led_process();
         display_publish();
