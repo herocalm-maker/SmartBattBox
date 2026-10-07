@@ -52,11 +52,17 @@ static uint8_t s_icon_ups = ICON_OFF; /* 0x2038 旁路 (市电直通) */
 /* 当前目标通路 (TextTime 充/放选择 + 动画使能依据) */
 static energy_path_t s_path = PATH_NONE;
 
-/* TextTime 平滑缓存: 变化 < TMIN_HYST 分钟不刷新 (MAX17263 分钟取整抖动) */
-#define TMIN_HYST 2u
+/* TextTime 节流: 3s 检测一次, 分钟值变化才写屏 (TTE/TTF 取整抖动过滤) */
+#define TEXT_TIME_CHECK_MS 3000u
 static uint16_t s_time_min_shown = 0;
 static bool     s_time_shown_valid = false;
-static uint8_t  s_time_mode = 0; /* 0=无 1=充电 2=逆变 */
+static uint32_t s_time_check_ms = 0;
+
+/* TextHZ 节流: 1s 检测一次, 频率值变化才写屏 */
+#define TEXT_HZ_CHECK_MS 1000u
+static uint16_t s_hz_shown = 0;
+static bool     s_hz_shown_valid = false;
+static uint32_t s_hz_check_ms = 0;
 
 /*====================================================================
  * 显示刷新
@@ -114,54 +120,64 @@ static void display_refresh(void)
     bool overload = (m != NULL) && m->online && (m->vout_p_w > BOARD_PWR_OVERLOAD_W);
     drv_dwin_set_text(VP_TEXT_ALARM, overload ? "OVERLOAD" : "");
 
-    /* --- TextTime (0x2020): 充电显示离充满时间 / 逆变显示可用时间 (纯分钟) ---
-     * 平滑: 分钟值变化 < TMIN_HYST 时不重写屏 (保持上次显示, 防跳动) */
-    uint8_t time_mode = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS) ? 1u :
-                        (s_path == PATH_INVERT) ? 2u : 0u;
-    if (time_mode != s_time_mode)
+    uint32_t now = HAL_GetTick();
+
+    /* --- TextTime (0x2020): 充电显示离充满剩余时间(TTF), 其余一律显示可用时间(TTE) ---
+     * 3s 节流: 分钟值变化才重写, 无变化不写屏 */
+    if ((uint32_t)(now - s_time_check_ms) >= TEXT_TIME_CHECK_MS)
     {
-        s_time_mode = time_mode;
-        s_time_shown_valid = false; /* 模式切换: 强制刷新 */
-    }
-    if (time_mode == 1u && bat && bat->ttf_valid && bat->time_to_full_min > 0)
-    {
-        uint16_t v = bat->time_to_full_min;
-        uint16_t diff = (v >= s_time_min_shown) ? (v - s_time_min_shown) : (s_time_min_shown - v);
-        if (!s_time_shown_valid || diff >= TMIN_HYST)
+        s_time_check_ms = now;
+        bool chg = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS);
+        uint16_t v = 0;
+        bool ok = false;
+        if (chg && bat && bat->ttf_valid && bat->time_to_full_min > 0)
         {
-            s_time_min_shown = v;
-            s_time_shown_valid = true;
-            snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
-            drv_dwin_set_text(VP_TEXT_TIME, txt);
+            v = bat->time_to_full_min;
+            ok = true;
         }
-        /* 变化小于阈值: 不写屏, 控件保持上次显示 */
-    }
-    else if (time_mode == 2u && bat && bat->tte_valid && bat->time_to_empty_min > 0)
-    {
-        uint16_t v = bat->time_to_empty_min;
-        uint16_t diff = (v >= s_time_min_shown) ? (v - s_time_min_shown) : (s_time_min_shown - v);
-        if (!s_time_shown_valid || diff >= TMIN_HYST)
+        else if (!chg && bat && bat->tte_valid && bat->time_to_empty_min > 0)
         {
-            s_time_min_shown = v;
-            s_time_shown_valid = true;
-            snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
-            drv_dwin_set_text(VP_TEXT_TIME, txt);
+            v = bat->time_to_empty_min;
+            ok = true;
         }
-    }
-    else
-    {
-        drv_dwin_set_text(VP_TEXT_TIME, ""); /* 无有效时间: 清空 */
+        if (ok)
+        {
+            if (!s_time_shown_valid || v != s_time_min_shown)
+            {
+                s_time_min_shown = v;
+                s_time_shown_valid = true;
+                snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
+                drv_dwin_set_text(VP_TEXT_TIME, txt);
+            }
+        }
+        else
+        {
+            s_time_shown_valid = false;
+            drv_dwin_set_text(VP_TEXT_TIME, "");
+        }
     }
 
-    /* --- TextHZ (0x2034): 逆变输出时显示频率 (0Hz 也写 0), 不输出写空 --- */
-    if (s_path == PATH_INVERT && m && m->online)
+    /* --- TextHZ (0x2034): 逆变输出时显示频率 (0Hz 也写 0), 不输出写空 ---
+     * 1s 节流: 频率值变化才重写 */
+    if ((uint32_t)(now - s_hz_check_ms) >= TEXT_HZ_CHECK_MS)
     {
-        snprintf(txt, sizeof txt, "%u", (unsigned)(m->vout_freq_hz + 0.5f));
-        drv_dwin_set_text(VP_TEXT_HZ, txt);
-    }
-    else
-    {
-        drv_dwin_set_text(VP_TEXT_HZ, "");
+        s_hz_check_ms = now;
+        if (s_path == PATH_INVERT && m && m->online)
+        {
+            uint16_t v = (uint16_t)(m->vout_freq_hz + 0.5f);
+            if (!s_hz_shown_valid || v != s_hz_shown)
+            {
+                s_hz_shown = v;
+                s_hz_shown_valid = true;
+                snprintf(txt, sizeof txt, "%u", (unsigned)v);
+                drv_dwin_set_text(VP_TEXT_HZ, txt);
+            }
+        }
+        else if (s_hz_shown_valid)
+        {
+            s_hz_shown_valid = false; /* 停止输出: 清空一次 */
+            drv_dwin_set_text(VP_TEXT_HZ, "");
+        }
     }
 }
 
