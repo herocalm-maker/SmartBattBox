@@ -460,6 +460,178 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
 }
 /* Invoked every main-loop tick, also while keys/charger startup are pending. */
 /**
+ * @brief 按当前阶段推进通路状态机 (由 power_process 每 tick 调用)。
+ * @param ac 输入计量模块提供的市电状态。
+ * @param elapsed 当前阶段已持续的毫秒数。
+ * @note 各阶段按计时 + path_permitted/inverter_stage_ready 复查推进, 不阻塞。
+ */
+static void power_phase_process(ac_input_state_t ac, uint32_t elapsed)
+{
+    switch (s_phase)
+    {
+    case PHASE_STOP_CHARGE:
+        /* 停充尾段: CHG_OUT 已断, 1.5s 后断 CHG_IN; keep_bypass 时提交旁路, 否则进机械释放 */
+        if (elapsed < PATH_STOP_CHARGE_TAIL_MS)
+        {
+            break;
+        }
+        drv_relay_off(RELAY_CHG_IN);
+        if (s_stop_chg_keep_bypass)
+        {
+            s_stop_chg_keep_bypass = false;
+            path_commit(PATH_BYPASS);
+        }
+        else
+        {
+            s_phase = PHASE_RELEASE_AC;
+            s_phase_since = HAL_GetTick();
+        }
+        break;
+
+    case PHASE_STOP_INV_TAIL:
+        /* 顺序断电尾段: 1.5s 后断主接触器与预充, 再进入机械释放 */
+        if (elapsed < PATH_STOP_INV_TAIL_MS)
+        {
+            break;
+        }
+        drv_relay_off(RELAY_INV_IN);
+        drv_relay_off(RELAY_INV_PRO);
+        s_phase = PHASE_RELEASE_AC;
+        s_phase_since = HAL_GetTick();
+        break;
+
+    case PHASE_RELEASE_AC:
+        if (elapsed < PATH_RELEASE_MS)
+        {
+            break;
+        }
+        s_dc_release_ms =
+            drv_relay_is_on(RELAY_INV_IN) ? PATH_CONTACTOR_RELEASE_MS : PATH_RELEASE_MS;
+        drv_relay_all_off(); /* PD4 off before PD7; no residual precharge feed. */
+        s_phase = PHASE_RELEASE_DC;
+        s_phase_since = HAL_GetTick();
+        break;
+
+    case PHASE_RELEASE_DC:
+        if (elapsed < s_dc_release_ms)
+        {
+            break;
+        }
+        if (s_target_path == PATH_INVERT && ac == AC_INPUT_UNKNOWN)
+        {
+            if (elapsed >= PATH_INPUT_WAIT_MS)
+            {
+                input_abort();
+            }
+            break;
+        }
+        if (!path_permitted(s_target_path, ac))
+        {
+            power_abort();
+            break;
+        }
+        if (s_target_path == PATH_NONE)
+        {
+            path_commit(PATH_NONE);
+            break;
+        }
+        if (s_target_path == PATH_BYPASS)
+        {
+            if (relay_on(RELAY_AC_CTRL))
+            {
+                path_commit(PATH_BYPASS);
+            }
+            break;
+        }
+        if (path_charges(s_target_path))
+        {
+            if (!relay_on(RELAY_CHG_IN))
+            {
+                break;
+            }
+            s_phase = PHASE_START_CHARGE;
+            s_ui_dirty = true;
+            display_publish(); /* 充电启动: 立即刷新充电图标, 不等通路 commit */
+            logger_out(LOG_INFO, "CHG: CHG_IN ON, charge 1500ms before CHG_OUT");
+        }
+        else
+        {
+            if (!relay_on(RELAY_INV_PRO))
+            {
+                break;
+            }
+            s_phase = PHASE_PRECHARGE;
+            s_ui_dirty = true;
+            display_publish(); /* PD4 预充开启: 立即刷新逆变图标, 不等通路 commit */
+            logger_out(LOG_INFO, "INV: PD4 ON, precharge 1500ms before PD7");
+        }
+        s_phase_since = HAL_GetTick();
+        break;
+
+    case PHASE_START_CHARGE:
+        if (elapsed < PATH_CHARGER_START_MS)
+        {
+            break;
+        }
+        if (!path_permitted(s_target_path, ac))
+        {
+            power_abort();
+            break;
+        }
+        if (!relay_on(RELAY_CHG_OUT))
+        {
+            break;
+        }
+        if (s_target_path == PATH_CHARGE_BYPASS && !relay_on(RELAY_AC_CTRL))
+        {
+            break;
+        }
+        path_commit(s_target_path);
+        break;
+
+    case PHASE_PRECHARGE:
+        if (elapsed < PATH_PRECHARGE_MS || !inverter_stage_ready(ac, elapsed))
+        {
+            break;
+        }
+        if (!relay_on(RELAY_INV_IN))
+        {
+            break;
+        }
+        s_phase = PHASE_START_DC;
+        s_phase_since = HAL_GetTick();
+        logger_out(LOG_INFO, "INV: PD7 ON, wait 500ms then PD4 off (direct connect)");
+        break;
+
+    case PHASE_START_DC:
+        if (elapsed < PATH_DC_FAST_MS || !inverter_stage_ready(ac, elapsed))
+        {
+            break;
+        }
+        drv_relay_off(RELAY_INV_PRO); /* 预充结束: 断开 PD4, 电池直连逆变器输入 */
+        s_phase = PHASE_START_INVERTER;
+        s_phase_since = HAL_GetTick();
+        logger_out(LOG_INFO, "INV: PD4 OFF (direct), wait 1500ms before PD0");
+        break;
+
+    case PHASE_START_INVERTER:
+        if (elapsed < PATH_INVERTER_START_MS || !inverter_stage_ready(ac, elapsed))
+        {
+            break;
+        }
+        if (relay_on(RELAY_INV_OUT))
+        {
+            path_commit(PATH_INVERT);
+            logger_out(LOG_INFO, "INV: PD0 output ON");
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+/**
  * @brief 推进充电、逆变和旁路的非阻塞通路状态机。
  *
  * 每 20ms 由主循环调用; 依赖 s_phase + s_phase_since 计时推进, 不阻塞等待.
@@ -513,167 +685,7 @@ static void power_process(void)
         return;
     }
     uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
-    if (s_phase == PHASE_STOP_CHARGE)
-    {
-        /* 停充尾段: CHG_OUT 已断, 1.5s 后断 CHG_IN; keep_bypass 时提交旁路, 否则进机械释放 */
-        if (elapsed < PATH_STOP_CHARGE_TAIL_MS)
-        {
-            return;
-        }
-        drv_relay_off(RELAY_CHG_IN);
-        if (s_stop_chg_keep_bypass)
-        {
-            s_stop_chg_keep_bypass = false;
-            path_commit(PATH_BYPASS);
-        }
-        else
-        {
-            s_phase = PHASE_RELEASE_AC;
-            s_phase_since = HAL_GetTick();
-        }
-        return;
-    }
-    if (s_phase == PHASE_STOP_INV_TAIL)
-    {
-        /* 顺序断电尾段: 1.5s 后断主接触器与预充, 再进入机械释放 */
-        if (elapsed < PATH_STOP_INV_TAIL_MS)
-        {
-            return;
-        }
-        drv_relay_off(RELAY_INV_IN);
-        drv_relay_off(RELAY_INV_PRO);
-        s_phase = PHASE_RELEASE_AC;
-        s_phase_since = HAL_GetTick();
-        return;
-    }
-    if (s_phase == PHASE_RELEASE_AC)
-    {
-        if (elapsed < PATH_RELEASE_MS)
-        {
-            return;
-        }
-        s_dc_release_ms =
-            drv_relay_is_on(RELAY_INV_IN) ? PATH_CONTACTOR_RELEASE_MS : PATH_RELEASE_MS;
-        drv_relay_all_off(); /* PD4 off before PD7; no residual precharge feed. */
-        s_phase = PHASE_RELEASE_DC;
-        s_phase_since = HAL_GetTick();
-        return;
-    }
-    if (s_phase == PHASE_RELEASE_DC)
-    {
-        if (elapsed < s_dc_release_ms)
-        {
-            return;
-        }
-        if (s_target_path == PATH_INVERT && ac == AC_INPUT_UNKNOWN)
-        {
-            if (elapsed >= PATH_INPUT_WAIT_MS)
-            {
-                input_abort();
-            }
-            return;
-        }
-        if (!path_permitted(s_target_path, ac))
-        {
-            power_abort();
-            return;
-        }
-        if (s_target_path == PATH_NONE)
-        {
-            path_commit(PATH_NONE);
-            return;
-        }
-        if (s_target_path == PATH_BYPASS)
-        {
-            if (relay_on(RELAY_AC_CTRL))
-            {
-                path_commit(PATH_BYPASS);
-            }
-            return;
-        }
-        if (path_charges(s_target_path))
-        {
-            if (!relay_on(RELAY_CHG_IN))
-            {
-                return;
-            }
-            s_phase = PHASE_START_CHARGE;
-            s_ui_dirty = true;
-            display_publish(); /* 充电启动: 立即刷新充电图标, 不等通路 commit */
-            logger_out(LOG_INFO, "CHG: CHG_IN ON, charge 1500ms before CHG_OUT");
-        }
-        else
-        {
-            if (!relay_on(RELAY_INV_PRO))
-            {
-                return;
-            }
-            s_phase = PHASE_PRECHARGE;
-            s_ui_dirty = true;
-            display_publish(); /* PD4 预充开启: 立即刷新逆变图标, 不等通路 commit */
-            logger_out(LOG_INFO, "INV: PD4 ON, precharge 1500ms before PD7");
-        }
-        s_phase_since = HAL_GetTick();
-        return;
-    }
-    if (s_phase == PHASE_START_CHARGE)
-    {
-        if (elapsed < PATH_CHARGER_START_MS)
-        {
-            return;
-        }
-        if (!path_permitted(s_target_path, ac))
-        {
-            power_abort();
-            return;
-        }
-        if (!relay_on(RELAY_CHG_OUT))
-        {
-            return;
-        }
-        if (s_target_path == PATH_CHARGE_BYPASS && !relay_on(RELAY_AC_CTRL))
-        {
-            return;
-        }
-        path_commit(s_target_path);
-    }
-    else if (s_phase == PHASE_PRECHARGE)
-    {
-        if (elapsed < PATH_PRECHARGE_MS || !inverter_stage_ready(ac, elapsed))
-        {
-            return;
-        }
-        if (!relay_on(RELAY_INV_IN))
-        {
-            return;
-        }
-        s_phase = PHASE_START_DC;
-        s_phase_since = HAL_GetTick();
-        logger_out(LOG_INFO, "INV: PD7 ON, wait 500ms then PD4 off (direct connect)");
-    }
-    else if (s_phase == PHASE_START_DC)
-    {
-        if (elapsed < PATH_DC_FAST_MS || !inverter_stage_ready(ac, elapsed))
-        {
-            return;
-        }
-        drv_relay_off(RELAY_INV_PRO); /* 预充结束: 断开 PD4, 电池直连逆变器输入 */
-        s_phase = PHASE_START_INVERTER;
-        s_phase_since = HAL_GetTick();
-        logger_out(LOG_INFO, "INV: PD4 OFF (direct), wait 1500ms before PD0");
-    }
-    else if (s_phase == PHASE_START_INVERTER)
-    {
-        if (elapsed < PATH_INVERTER_START_MS || !inverter_stage_ready(ac, elapsed))
-        {
-            return;
-        }
-        if (relay_on(RELAY_INV_OUT))
-        {
-            path_commit(PATH_INVERT);
-            logger_out(LOG_INFO, "INV: PD0 output ON");
-        }
-    }
+    power_phase_process(ac, elapsed);
 }
 
 /**
