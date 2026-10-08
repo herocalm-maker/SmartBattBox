@@ -1071,7 +1071,7 @@ void AppMainTask(void *arg)
     mod_key_init();
     mod_key_register_callback(app_main_task_key_event_handler);
     logger_out(LOG_INFO,
-               "Power controller: auto-charge(AC 2s stable), PD4->500ms->PD7->100ms->PD0 (PD4 held)");
+               "Power controller: auto-charge(AC 2s stable), INV PD4->1.5s->PD7->0.5s->PD4off->1.5s->PD0");
     for (;;)
     {
         /* Apply source/fault changes before accepting a new key request. */
