@@ -106,6 +106,17 @@ static uint32_t battery_path_fault_mask(energy_path_t path)
                               : (SYS_ALARM_BAT_UVP | SYS_ALARM_BAT_OCP);
 }
 
+/* 通路活跃判定: 目标通路或实测继电器任一成立 (过渡期保护仍生效) */
+static bool path_active_charge(void)
+{
+    return path_charges(s_target_path) || drv_relay_is_on(RELAY_CHG_IN);
+}
+static bool path_active_invert(void)
+{
+    return s_target_path == PATH_INVERT || drv_relay_is_on(RELAY_INV_PRO) ||
+           drv_relay_is_on(RELAY_INV_IN);
+}
+
 /**
  * @brief 电池方向有效性判定: 快照有效且无方向故障位。
  * @param path 待检查或提交的能量通路。
@@ -239,6 +250,29 @@ static bool relay_on(relay_id_enum id)
 }
 
 /**
+ * @brief 稳定充电状态下的组合切换: 充电 <-> 充电+旁路 不重启充电回路。
+ * @param path 目标通路 (PATH_CHARGE 或 PATH_CHARGE_BYPASS)。
+ * @return true: 已直接提交; false: 继电器失败 (已进故障)。
+ * @note 由 path_request 在 "PHASE_IDLE 且 cur/目标均为充电通路" 时调用。
+ */
+static bool path_request_charge_switch(energy_path_t path)
+{
+    if (path == PATH_CHARGE_BYPASS)
+    {
+        if (!relay_on(RELAY_AC_CTRL))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        drv_relay_off(RELAY_AC_CTRL);
+    }
+    path_commit(path);
+    return true;
+}
+
+/**
  * @brief 检查输入来源、电池数据和温度是否允许开启目标通路。
  * @param path 待检查或提交的能量通路。
  * @param ac 输入计量模块提供的市电状态。
@@ -355,19 +389,7 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
     }
     if (s_phase == PHASE_IDLE && path_charges(s_cur_path) && path_charges(path))
     {
-        if (path == PATH_CHARGE_BYPASS)
-        {
-            if (!relay_on(RELAY_AC_CTRL))
-            {
-                return false;
-            }
-        }
-        else
-        {
-            drv_relay_off(RELAY_AC_CTRL);
-        }
-        path_commit(path);
-        return true;
+        return path_request_charge_switch(path);
     }
     path_begin_stop(path);
     return true;
@@ -1012,9 +1034,8 @@ static void work_status_process(void)
         return;
     }
 
-    bool charge = path_charges(s_target_path) || drv_relay_is_on(RELAY_CHG_IN);
-    bool invert = s_target_path == PATH_INVERT || drv_relay_is_on(RELAY_INV_PRO) ||
-                  drv_relay_is_on(RELAY_INV_IN);
+    bool charge = path_active_charge();
+    bool invert = path_active_invert();
 
     /* 2. 温度保护: 按通路方向过温即跳故障 */
     if (thermal_protect(t, charge, invert))
