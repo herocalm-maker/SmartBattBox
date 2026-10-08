@@ -883,40 +883,6 @@ static void publish(void *c, const battery_app_t *a)
     taskENTER_CRITICAL();
     published = x;
     taskEXIT_CRITICAL();
-#if BATTERY_CSV_ENABLE
-    logger_out(LOG_INFO, "BATCSV,%lu,%u,%lu,%ld,%ld,%d,%u,%lu,%lu,%u,%lu,%d", (unsigned long)x.timestamp_ms,
-                 x.valid, (unsigned long)x.voltage_mv, (long)x.current_ma, (long)x.avg_current_ma, x.temp_deg,
-                 x.soc, (unsigned long)x.repcap_mah, (unsigned long)x.fullcap_mah, x.cycles_raw,
-                 (unsigned long)x.active_faults, x.last_error);
-    if (x.valid)
-    {
-        uint16_t fs = 0;
-        uint16_t mix = 0;
-        uint16_t vf = 0;
-        uint16_t rc = 0;
-        uint16_t tc = 0;
-        int dr = drv_max17263_read(&gauge_app.gauge, M_FSTAT, &fs);
-        if (!dr)
-        {
-            dr = drv_max17263_read(&gauge_app.gauge, 0x0D, &mix);
-        }
-        if (!dr)
-        {
-            dr = drv_max17263_read(&gauge_app.gauge, M_VFSOC, &vf);
-        }
-        if (!dr)
-        {
-            dr = drv_max17263_read(&gauge_app.gauge, M_RCOMP0, &rc);
-        }
-        if (!dr)
-        {
-            dr = drv_max17263_read(&gauge_app.gauge, M_TEMPCO, &tc);
-        }
-        logger_out(LOG_INFO, "BATDIAG,%lu,%d,%u,%u,%u,%u,%u,%u,%lu", (unsigned long)x.timestamp_ms, dr,
-                     a->sample.status, fs, mix, vf, rc, tc,
-                     (unsigned long)rounded(a->sample.nominal_full_mah));
-    }
-#endif
 }
 
 /*********************************************************************

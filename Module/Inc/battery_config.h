@@ -8,10 +8,6 @@
 #define BATTERY_ACTION_DELAY_MS 2000u
 #define BATTERY_PROFILE_ID 4u
 #define BATTERY_PACK_ID 1u /* Change on physical pack replacement. */
-/* 1 enables 1Hz CSV for bench validation; default keeps 10s ordinary logs. */
-#ifndef BATTERY_CSV_ENABLE
-#define BATTERY_CSV_ENABLE 0
-#endif
 static const max17263_config_t battery_cfg={
  .profile_id=BATTERY_PROFILE_ID,.battery_id=BATTERY_PACK_ID,
  .rsense_uohm=1000,.design_mah=20000,.ichgterm_ma=1000,
