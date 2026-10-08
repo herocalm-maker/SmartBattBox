@@ -117,7 +117,7 @@ void MX_FREERTOS_Init(void)
   xMeteringQueueHandle = xQueueCreateStatic(METERING_MSG_QUEUE_MAX_NUM, sizeof(ucMESSAGE_t), ucMeteringMsgQueueBuff, &xMeteringMsgQueue);
 
   /* === 启动任务 === */
-  /* 优先级: SensorTask(6) > BleTask(5) = DisplayTask(5) = MeteringTask(5) > AppMainTask(4) */
+  /* 优先级: SensorTask(6) = MeteringTask(6) = DisplayTask(6) = AppMainTask(6) > BleTask(5) */
   xTaskCreate((TaskFunction_t )SensorTask,
               (const char*    )"AppSensorTask",
               (uint16_t       )1024,
@@ -150,7 +150,7 @@ void MX_FREERTOS_Init(void)
               (const char*    )"userAppMainTask",
               (uint16_t       )1024,
               (void*          )NULL,
-              (UBaseType_t    )6,        /* 最低: 业务逻辑 */
+              (UBaseType_t    )6,        /* 业务逻辑 */
               (TaskHandle_t*  )&s_task_main); 
 
   log_print("=== System ready, tasks running ===");

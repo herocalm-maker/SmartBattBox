@@ -53,8 +53,7 @@ typedef enum
     PHASE_PRECHARGE,
     PHASE_START_DC,          /* 逆变: PD7 后 0.5s 断 PD4 直连 (需求文档三段时序) */
     PHASE_START_INVERTER,
-    PHASE_STOP_CHARGE,
-    PHASE_STOP_CHARGE_TAIL,
+    PHASE_STOP_CHARGE,       /* 停充尾段: CHG_OUT 已断, 1.5s 后断 CHG_IN (keep_bypass 决定提交旁路或进释放) */
     PHASE_STOP_INV_TAIL
 } path_phase_t;
 
@@ -85,6 +84,7 @@ static bool s_fan_aux_on, s_fan_main_on;
 static bool s_ui_dirty = true;
 static bool s_battery_trip_pending;
 static uint32_t s_battery_trip_since;
+static bool s_stop_chg_keep_bypass; /* 停充尾段提交目标: true=保留旁路(PATH_BYPASS), false=进机械释放 */
 
 /**
  * @brief 读取当前系统运行状态。
@@ -104,6 +104,24 @@ static uint32_t battery_path_fault_mask(energy_path_t path)
 {
     return path_charges(path) ? (SYS_ALARM_BAT_OVP | SYS_ALARM_BAT_OCP)
                               : (SYS_ALARM_BAT_UVP | SYS_ALARM_BAT_OCP);
+}
+
+/**
+ * @brief 电池方向有效性判定: 快照有效且无方向故障位。
+ * @param path 待检查或提交的能量通路。
+ * @param bat 出参: 电池快照 (供故障码细分)。
+ * @param faults 出参: 方向故障位掩码 (快照无效时为 0)。
+ * @return true: 快照有效; false: 快照无效。
+ */
+static bool battery_path_ok(energy_path_t path, BATT_INFO_T *bat, uint32_t *faults)
+{
+    if (!battery_get_snapshot(bat))
+    {
+        *faults = 0;
+        return false;
+    }
+    *faults = bat->alarm_bits & battery_path_fault_mask(path);
+    return true;
 }
 
 /**
@@ -186,13 +204,18 @@ static void power_abort(void)
 }
 
 /**
- * @brief 记录告警、关闭通路并进入故障状态。
+ * @brief 记录告警、立即全断并进入故障状态 (不经过 path_commit, 避免冗余 IDLE 状态日志)。
  * @param alarm 本次新增的告警位掩码。
  */
 static void enter_fault(uint32_t alarm)
 {
     app_alarm_merge(alarm);
-    power_abort();
+    drv_relay_all_off();
+    s_output_requested = false;
+    s_battery_trip_pending = false;
+    s_cur_path = s_target_path = PATH_NONE;
+    s_phase = PHASE_IDLE;
+    s_ui_dirty = true;
     state_set(SYS_STATUS_FAULT);
     drv_led_on(LED_ALM);
     drv_buzzer_short_sound(3);
@@ -251,7 +274,8 @@ static bool path_permitted(energy_path_t path, ac_input_state_t ac)
     if (path_charges(path) || path == PATH_INVERT)
     {
         BATT_INFO_T bat;
-        if (!battery_get_snapshot(&bat) || (bat.alarm_bits & battery_path_fault_mask(path)))
+        uint32_t faults;
+        if (!battery_path_ok(path, &bat, &faults) || faults != 0)
         {
             return false;
         }
@@ -281,7 +305,8 @@ static void path_begin_stop(energy_path_t target)
     }
     else if (drv_relay_is_on(RELAY_CHG_IN))
     {
-        s_phase = PHASE_STOP_CHARGE_TAIL;
+        s_stop_chg_keep_bypass = false;
+        s_phase = PHASE_STOP_CHARGE;
     }
     else
     {
@@ -321,6 +346,7 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
         drv_relay_off(RELAY_CHG_OUT);
         s_target_path = PATH_BYPASS;
         s_cur_path = PATH_NONE;
+        s_stop_chg_keep_bypass = true;
         s_phase = PHASE_STOP_CHARGE;
         s_phase_since = HAL_GetTick();
         state_set(SYS_STATUS_SWITCHING);
@@ -422,8 +448,7 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
  *   PHASE_PRECHARGE      - 逆变预充 (PD4), 1500ms 后吸合 PD7
  *   PHASE_START_DC       - PD7 后 500ms 断开 PD4 (电池直连逆变器输入)
  *   PHASE_START_INVERTER - 直连后 1500ms 开 PD0 输出, 完成时 path_commit
- *   PHASE_STOP_CHARGE      - 停充保留旁路: CHG_OUT 已断, 1.5s 后断 CHG_IN 提交旁路
- *   PHASE_STOP_CHARGE_TAIL - 顺序断电: 1.5s 后断 CHG_IN 再进机械释放
+ *   PHASE_STOP_CHARGE      - 停充尾段: 1.5s 后断 CHG_IN (keep_bypass: 提交旁路 / 进机械释放)
  *   PHASE_STOP_INV_TAIL    - 顺序断电: 1.5s 后断 PD7/PD4 再进机械释放
  * 安全: 每次进入/推进前都过 path_permitted() 复查 (输入/电池/温度).
  */
@@ -468,25 +493,22 @@ static void power_process(void)
     uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
     if (s_phase == PHASE_STOP_CHARGE)
     {
-        /* 停充保留旁路: CHG_OUT 已断, 1.5s 后再断 CHG_IN 并提交旁路 */
+        /* 停充尾段: CHG_OUT 已断, 1.5s 后断 CHG_IN; keep_bypass 时提交旁路, 否则进机械释放 */
         if (elapsed < PATH_STOP_CHARGE_TAIL_MS)
         {
             return;
         }
         drv_relay_off(RELAY_CHG_IN);
-        path_commit(PATH_BYPASS);
-        return;
-    }
-    if (s_phase == PHASE_STOP_CHARGE_TAIL)
-    {
-        /* 顺序断电尾段: 1.5s 后断充电输入, 再进入机械释放 */
-        if (elapsed < PATH_STOP_CHARGE_TAIL_MS)
+        if (s_stop_chg_keep_bypass)
         {
-            return;
+            s_stop_chg_keep_bypass = false;
+            path_commit(PATH_BYPASS);
         }
-        drv_relay_off(RELAY_CHG_IN);
-        s_phase = PHASE_RELEASE_AC;
-        s_phase_since = HAL_GetTick();
+        else
+        {
+            s_phase = PHASE_RELEASE_AC;
+            s_phase_since = HAL_GetTick();
+        }
         return;
     }
     if (s_phase == PHASE_STOP_INV_TAIL)
@@ -911,8 +933,8 @@ static bool battery_protect(bool charge, bool invert)
         return false;
     }
     BATT_INFO_T bat = {0};
-    bool good = battery_get_snapshot(&bat);
-    uint32_t severe = bat.alarm_bits & battery_path_fault_mask(charge ? PATH_CHARGE : PATH_INVERT);
+    uint32_t severe = 0;
+    bool good = battery_path_ok(charge ? PATH_CHARGE : PATH_INVERT, &bat, &severe);
     if (!good || severe)
     {
         if (!s_battery_trip_pending)
