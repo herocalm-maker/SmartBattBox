@@ -62,14 +62,13 @@ bool drv_relay_on(relay_id_enum id)
     {
         return false;
     }
-    /* DC supply is commanded PD4 then PD7; both remain on during inversion.
-     * AppMainTask owns the stabilization delay before PD0. */
+    /* 逆变启动三段时序 (App 层): PD4(预充)→1.5s→PD7(主接触器)→0.5s→PD4断→1.5s→PD0.
+     * 故 PD0 合闸时 PD4 已按时序断开, 互锁仅要求直流母线已建立 (PD7 保持). */
     if (id == RELAY_INV_IN && !drv_relay_is_on(RELAY_INV_PRO))
     {
         return false;
     }
-    if (id == RELAY_INV_OUT && (!drv_relay_is_on(RELAY_INV_IN) ||
-                               !drv_relay_is_on(RELAY_INV_PRO)))
+    if (id == RELAY_INV_OUT && !drv_relay_is_on(RELAY_INV_IN))
     {
         return false;
     }
