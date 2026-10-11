@@ -268,6 +268,11 @@ void mod_metering_handler(void)
         	any_success = true;
     }
 
+    /* 分通道有效性: 连续 METERING_NO_DATA_TIMEOUT 次无数据 → 通道失效
+     * (输入失效影响充电/AC 判定; 输出失效影响逆变/旁路, 但不关闭充电) */
+    s_info.in_ok  = (vin_no_data_count  < METERING_NO_DATA_TIMEOUT) ? 1u : 0u;
+    s_info.out_ok = (vout_no_data_count < METERING_NO_DATA_TIMEOUT) ? 1u : 0u;
+
     /* 在线/离线判定 (迟滞: 连续失败/成功计数) */
     if (any_success)
     {

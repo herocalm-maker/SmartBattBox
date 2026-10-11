@@ -235,9 +235,11 @@ static void enter_fault(uint32_t alarm)
 }
 
 /**
- * @brief 通过驱动互锁开启一路输出，失败时进入继电器故障状态。
+ * @brief 通过驱动互锁开启一路输出。
  * @param id 继电器输出编号。
- * @return true：命令已接受；false：互锁拒绝并已进入故障。
+ * @return true：命令已接受；false：互锁拒绝/ID 无效。
+ * @note 互锁判定基于命令位 (s_relay_state), 非硬件反馈——软件判断不了
+ *       继电器真实状态, 故拒绝不视为故障, 仅记录日志, 由调用方安全收敛。
  */
 static bool relay_on(relay_id_enum id)
 {
@@ -246,7 +248,7 @@ static bool relay_on(relay_id_enum id)
         s_ui_dirty = true;
         return true;
     }
-    enter_fault(SYS_ALARM_RELAY);
+    logger_out(LOG_WARN, "relay %d on rejected (interlock)", (int)id);
     return false;
 }
 
@@ -625,6 +627,13 @@ static void power_phase_process(ac_input_state_t ac, uint32_t elapsed)
             path_commit(PATH_INVERT);
             logger_out(LOG_INFO, "INV: PD0 output ON");
         }
+        else
+        {
+            /* 互锁拒绝 (非故障): 中止逆变时序, 全断回空闲, 短响提示 */
+            logger_out(LOG_WARN, "INV: PD0 rejected, abort startup");
+            power_abort();
+            drv_buzzer_short_sound(2);
+        }
         break;
 
     default:
@@ -689,7 +698,15 @@ static energy_path_t resolve_target_path(ac_input_state_t ac, bool want_output, 
 static void handle_path_key(void)
 {
     ac_input_state_t ac = mod_metering_get_ac_input().state;
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    if (s_state == SYS_STATUS_FAULT)
+    {
+        /* 异常态按键不静默: 短响三声提示"被拒", 并即时刷新错误码显示
+         * (无码时 TextError 显示空, 蜂鸣三声本身即为按键反馈) */
+        drv_buzzer_short_sound(3);
+        display_publish();
+        return;
+    }
+    if (s_shutting_down)
     {
         return;
     }
@@ -708,6 +725,11 @@ static void handle_path_key(void)
         app_alarm_unmerge(SYS_ALARM_AC_INPUT);
         drv_buzzer_short_sound(1);
         display_publish(); /* 通路变化: 即时刷新继电器图标, 不等 500ms 周期 */
+    }
+    else
+    {
+        /* 通路请求被拒 (保护/互锁/条件不满足): 短响 2 提示 */
+        drv_buzzer_short_sound(2);
     }
 }
 
@@ -1055,6 +1077,34 @@ static void work_status_process(void)
         uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
         power_phase_process(ac, elapsed);
         return;
+    }
+
+    /* 输出计量失效守卫: 输出 HLW8110 持续无数据 (通道失效) →
+     *   逆变/旁路输出无法安全计量 → 停止输出, 短响提示;
+     *   纯充电/空闲不受影响 (用户约束: 输出失效不能关闭充电) */
+    const METER_INFO_T *met = metering_get_info();
+    if (met != NULL && met->out_ok == 0u)
+    {
+        if (s_target_path == PATH_INVERT)
+        {
+            logger_out(LOG_WARN, "OUT metering lost: stop inverter");
+            s_output_requested = false;
+            if (path_request(PATH_NONE, ac))
+            {
+                drv_buzzer_short_sound(2);
+                display_publish();
+            }
+        }
+        else if (s_target_path == PATH_CHARGE_BYPASS)
+        {
+            /* 充电+旁路: 仅停旁路直通, 保留充电回路 */
+            logger_out(LOG_WARN, "OUT metering lost: bypass off, charge keep");
+            if (path_request(PATH_CHARGE, ac))
+            {
+                drv_buzzer_short_sound(2);
+                display_publish();
+            }
+        }
     }
 
     /* 稳态附加管理: 按工作态分派 (风扇已独立到主循环, 此处不再涉及) */

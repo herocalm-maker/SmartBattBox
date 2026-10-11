@@ -10,6 +10,7 @@
 #include "main.h"
 #include "app_metering_task.h"
 #include "mod_metering.h"
+#include "app_alarm.h"
 #include "bsp_wdg.h"
 #include "comm_logger.h"
 #include "comm_str.h"
@@ -106,6 +107,21 @@ void MeteringTask(void *arg)
     {
         /* 读双路 HLW8110 数据 + 异常检测 */
         mod_metering_handler();
+
+        /* 通讯失败告警: 任一通道持续无数据 → 置 METER_COMM (ERROR 02);
+         * 双通道恢复后清除. (仅置告警位, 动作由 app_main_task 按通道语义执行) */
+        METER_INFO_T *m = metering_get_info();
+        if (m)
+        {
+            if (m->in_ok == 0u || m->out_ok == 0u)
+            {
+                app_alarm_merge(SYS_ALARM_METER_COMM);
+            }
+            else
+            {
+                app_alarm_unmerge(SYS_ALARM_METER_COMM);
+            }
+        }
 
         /* 日志周期按任务循环次数累计。 */
         metering_tim_process();

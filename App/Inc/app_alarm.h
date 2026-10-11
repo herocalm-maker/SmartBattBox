@@ -20,14 +20,12 @@
 extern "C" {
 #endif
 
-/* ERROR(故障) 位掩码: 影响安全/需保护停机 */
-#define APP_ALARM_ERR_MASK (SYS_ALARM_BAT_OVP | SYS_ALARM_BAT_UVP | SYS_ALARM_BAT_OTP | \
-                            SYS_ALARM_BAT_OCP | SYS_ALARM_INV_OTP | SYS_ALARM_CHG_OTP | \
-                            SYS_ALARM_RELAY)
+/* ERROR(故障) 位掩码: 仅通讯硬故障 (MAX17263 / HLW8110 持续通讯失败) */
+#define APP_ALARM_ERR_MASK (SYS_ALARM_BAT_COMM | SYS_ALARM_METER_COMM)
 
-/* ALARM(报警) 位掩码: 提示性, 可继续运行 */
-#define APP_ALARM_ALM_MASK (SYS_ALARM_AC_INPUT | SYS_ALARM_BAT_INVALID | \
-                            SYS_ALARM_STORAGE | SYS_ALARM_LOW_SOC)
+/* ALARM(报警) 位掩码: 温度类为主 + 低电量提示 */
+#define APP_ALARM_ALM_MASK (SYS_ALARM_BAT_OTP | SYS_ALARM_INV_OTP | \
+                            SYS_ALARM_CHG_OTP | SYS_ALARM_LOW_SOC)
 
 /* ---- 告警位图持有 ---- */
 void     app_alarm_merge(uint32_t bits);    /* 单一合并入口: 按位 OR */

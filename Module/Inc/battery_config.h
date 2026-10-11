@@ -18,7 +18,7 @@ static const max17263_config_t battery_cfg={
 static const battery_policy_t battery_policy={
  .min_cell_mv=2500,.max_cell_mv=3700,.min_temp_c=-20,.max_temp_c=60,
  .low_soc=10,.max_discharge_ma=42000,.max_charge_ma=10000,
- .period_ms=1000,.stale_ms=BATTERY_STALE_MS,
+ .period_ms=3000,.stale_ms=BATTERY_STALE_MS,
  .led_bars=12,.led_mode=3,.led_brightness=8,.led_mv=2000,
  .led_while_charging=false
 };

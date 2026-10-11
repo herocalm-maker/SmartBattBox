@@ -827,14 +827,16 @@ static int32_t rounded(float f)
 }
 
 /*********************************************************************
- * @fn      publish
- * @brief   将完整采样结果换算为应用快照并发布。
- * @param   c  未使用的上下文
- * @param   a  电池应用实例
- * @return  none
- * @note    临界区仅覆盖结构体复制；日志及诊断读取均在临界区外。
+ * @fn      fold_alarm
+ * @brief   将电池模块内部故障位图折叠为统一系统告警位。
+ * @param   faults      电池模块故障位图 (BAT_FAULT_*)
+ * @param   consecutive 连续采样失败计数 (仅通讯失败判定使用)
+ * @return  统一告警位图 (sys_alarm.h)
+ * @note    通讯失败 (BAT_FAULT_IO) 需连续 ≥ BAT_COMM_ERR_THRESHOLD 次
+ *          才折叠为 BAT_COMM (ERROR); 传感器无效折叠为 BAT_INVALID (保护用)。
 ********************************************************************/
-static uint32_t fold_alarm(uint32_t faults)
+#define BAT_COMM_ERR_THRESHOLD 10u /* MAX17263 连续失败 ≥10 次 (3s 轮询 ≈30s) 才报 ERROR */
+static uint32_t fold_alarm(uint32_t faults, uint32_t consecutive)
 {
     uint32_t out = 0;
     if (faults & BAT_FAULT_OV)                                out |= SYS_ALARM_BAT_OVP;
@@ -843,9 +845,20 @@ static uint32_t fold_alarm(uint32_t faults)
     if (faults & (BAT_FAULT_OC_DIS | BAT_FAULT_OC_CHG))       out |= SYS_ALARM_BAT_OCP;
     if (faults & BAT_FAULT_LOW_SOC)                           out |= SYS_ALARM_LOW_SOC;
     if (faults & (BAT_FAULT_NVM | BAT_FAULT_PROFILE | BAT_FAULT_RESET | BAT_FAULT_STALE)) out |= SYS_ALARM_STORAGE;
-    if (faults & (BAT_FAULT_IO | BAT_FAULT_SENSOR))           out |= SYS_ALARM_BAT_INVALID;
+    if ((faults & BAT_FAULT_IO) && consecutive >= BAT_COMM_ERR_THRESHOLD)
+                                                              out |= SYS_ALARM_BAT_COMM;
+    if (faults & BAT_FAULT_SENSOR)                            out |= SYS_ALARM_BAT_INVALID;
     return out;
 }
+
+/*********************************************************************
+ * @fn      publish
+ * @brief   将完整采样结果换算为应用快照并发布。
+ * @param   c  未使用的上下文
+ * @param   a  电池应用实例
+ * @return  none
+ * @note    临界区仅覆盖结构体复制；日志及诊断读取均在临界区外。
+********************************************************************/
 static void publish(void *c, const battery_app_t *a)
 {
     BATT_INFO_T x = {0};
@@ -854,7 +867,7 @@ static void publish(void *c, const battery_app_t *a)
     x.online = x.valid;
     x.timestamp_ms = a->sample.timestamp_ms;
     x.active_faults = a->active_faults;
-    x.alarm_bits = fold_alarm(a->active_faults);
+    x.alarm_bits = fold_alarm(a->active_faults, a->consecutive_errors);
     x.latched_faults = a->latched_faults;
     x.last_error = a->last_error;
     x.alert_flags = a->observed_alerts;

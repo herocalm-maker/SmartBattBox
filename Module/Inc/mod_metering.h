@@ -51,6 +51,8 @@ typedef struct {
     uint8_t online;           /* 1=在线 0=离线 */
     uint16_t fail_count;
     uint16_t ok_count;
+    uint8_t in_ok;            /* 输入通道有效 (1=连续读取正常, 0=持续无数据) */
+    uint8_t out_ok;           /* 输出通道有效 (1=连续读取正常, 0=持续无数据) */
 } METER_INFO_T;
 
 /*====================================================================
