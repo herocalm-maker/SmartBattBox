@@ -1139,10 +1139,14 @@ void AppMainTask(void *arg)
         fan_manage(mod_temp_get());
         /* ② 工作状态机: 保护 + 充电策略 + 通路切换 + 稳态管理 */
         work_status_process();
+        /* ③ 按键: 轮询扫描, 事件经回调分发 (仅 ONOFF 长按 / ACOUT 按下) */
         mod_key_poll_handler();
+        /* ④ 指示灯: 非阻塞刷新工作灯 (绿灯 1s 亮灭 / 蓝灯 5s 快闪) */
         work_led_process();
+        /* ⑤ 显示: 通路/状态有变化时向显示任务发送图标消息 */
         display_publish();
+        /* ⑥ 看门狗: 主任务心跳喂狗 */
         bsp_wdg_task_heartbeat(WDG_TASK_MAIN);
-        osDelay(20);
+        osDelay(20); /* 20ms 任务节拍 */
     }
 }
