@@ -266,13 +266,13 @@ void DisplayTask(void *argument)
     ucMESSAGE_t Msg = {0};
     uint32_t refresh_cnt = 0;
 
-    /* ① 开机首刷: 覆盖屏端默认文本 (888HMIN 等), 并立即整屏刷新 */
+    /* 开机首刷: 覆盖屏端默认文本 (888HMIN 等), 并立即整屏刷新 */
     display_init_clear_text();
     display_refresh();
 
     for (;;)
     {
-        /* ② 消息等待: 显示队列阻塞等待 (图标/通路事件) */
+        /* 消息等待: 显示队列阻塞等待 (图标/通路事件) */
         uwRet = xQueueReceive(xDisplayQueueHandle, &Msg, pdMS_TO_TICKS(DISPLAY_TICK_MS));
         if (uwRet == pdPASS)
         {
@@ -295,14 +295,14 @@ void DisplayTask(void *argument)
             }
         }
 
-        /* ③ 数值刷新: 按计数周期整屏刷新 (消息驱动图标, 周期驱动数值) */
+        /* 数值刷新: 按计数周期整屏刷新 (消息驱动图标, 周期驱动数值) */
         if (++refresh_cnt >= REFRESH_DIV)
         {
             refresh_cnt = 0;
             display_refresh();
         }
 
-        /* ④ 心跳: 监控定时器检测任务存活 */
+        /* 心跳: 监控定时器检测任务存活 */
         bsp_wdg_task_heartbeat(WDG_TASK_DISP);
     }
 }

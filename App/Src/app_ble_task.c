@@ -96,13 +96,13 @@ void BleTask(void *arg)
     uint32_t uwRet = 0;
     ucMESSAGE_t Msg = {0};
 
-    /* ① 唤醒 BLE 模块: 拉高唤醒引脚, 等待 10ms 模块上电稳定 */
+    /* 唤醒 BLE 模块: 拉高唤醒引脚, 等待 10ms 模块上电稳定 */
     bsp_gpio_write(BOARD_BLE_WKUP_PORT, BOARD_BLE_WKUP_PIN, GPIO_PIN_SET);
     osDelay(10);
 
     for (;;)
     {
-        /* ② 消息等待: 队列阻塞 100ms 超时 (预留通道, 当前无业务处理) */
+        /* 消息等待: 队列阻塞 100ms 超时 (预留通道, 当前无业务处理) */
         uwRet = xQueueReceive(xBleQueueHandle, &Msg, 100);
         if (uwRet == pdPASS)
         {
@@ -116,7 +116,7 @@ void BleTask(void *arg)
             }
         }
 
-        /* ③ 心跳: 监控定时器检测任务存活 */
+        /* 心跳: 监控定时器检测任务存活 */
         bsp_wdg_task_heartbeat(WDG_TASK_BLE);
     }
 }

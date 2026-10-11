@@ -461,7 +461,7 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
 }
 /* Invoked every main-loop tick, also while keys/charger startup are pending. */
 /**
- * @brief 按当前阶段推进通路状态机 (由 work_status_process ⑤ 每 tick 调用)。
+ * @brief 按当前阶段推进通路状态机 (由 work_status_process 每 tick 调用)。
  * @param ac 输入计量模块提供的市电状态。
  * @param elapsed 当前阶段已持续的毫秒数。
  * @note 各阶段按计时 + path_permitted/inverter_stage_ready 复查推进, 不阻塞。
@@ -712,7 +712,7 @@ static void handle_path_key(void)
 }
 
 /**
- * @brief 充电策略: 220V 稳定 2s 且未充满时置 need_charge (由 work_status_process ③ 调用)。
+ * @brief 充电策略: 220V 稳定 2s 且未充满时置 need_charge (由 work_status_process 调用)。
  * @param ac 输入计量模块提供的市电状态。
  * @note 防抖计时在 AC 波动(掉电再接入)时清零; 充满/无AC 自动收敛;
  *       故障/关机门控由 work_status_process 外部保证。
@@ -993,12 +993,12 @@ static void full_charge_auto_stop(void)
  *
  * 阶段流水 (每 20ms, 主循环调用):
  *   门控(关机→shutdown_process / 故障→保持全断)
- *   → ① 温度/电池方向保护 (启动中立即, 稳态延时跳闸)
- *   → ② AC 掉电守卫 (需市电的通路在 220V 丢失/未知时立即停止)
- *   → ③ 充电策略 (AC 稳定 2s → need_charge)
- *   → ④ 目标通路合成+切换 (输出请求+充电策略; AC 恢复自动转旁路)
- *   → ⑤ PHASE 时序推进 (预充/直连/输出/停充尾段)
- *   → ⑥ 稳态附加管理 (按工作态分派: 充电→充满停充 / 逆变→空闲看门狗 / 空闲→无)
+ *   → 温度/电池方向保护 (启动中立即, 稳态延时跳闸)
+ *   → AC 掉电守卫 (需市电的通路在 220V 丢失/未知时立即停止)
+ *   → 充电策略 (AC 稳定 2s → need_charge)
+ *   → 目标通路合成+切换 (输出请求+充电策略; AC 恢复自动转旁路)
+ *   → PHASE 时序推进 (预充/直连/输出/停充尾段)
+ *   → 稳态附加管理 (按工作态分派: 充电→充满停充 / 逆变→空闲看门狗 / 空闲→无)
  * 工作态由 s_target_path 派生, 不新增状态变量。
  */
 static void work_status_process(void)
@@ -1022,7 +1022,7 @@ static void work_status_process(void)
         s_ui_dirty = true;
     }
 
-    /* ① 异常监督: 温度/电池方向保护 (启动中立即, 稳态延时跳闸) */
+    /* 异常监督: 温度/电池方向保护 (启动中立即, 稳态延时跳闸) */
     const TEMP_INFO_T *t = mod_temp_get();
     bool charge = path_active_charge();
     bool invert = path_active_invert();
@@ -1031,25 +1031,25 @@ static void work_status_process(void)
         return;
     }
 
-    /* ② AC 掉电守卫: 充电/旁路通路在 220V 丢失或未知时立即停止, 等下次按键 */
+    /* AC 掉电守卫: 充电/旁路通路在 220V 丢失或未知时立即停止, 等下次按键 */
     if (path_needs_ac(s_target_path) && ac != AC_INPUT_PRESENT)
     {
         input_abort();
         return;
     }
 
-    /* ③ 充电策略: 220V 稳定 2s 且未充满 → need_charge (波动清零防抖) */
+    /* 充电策略: 220V 稳定 2s 且未充满 → need_charge (波动清零防抖) */
     charge_strategy_update(ac);
 
-    /* ④ 目标通路合成+切换: 输出请求 + 充电策略
-     *    AC present 时 resolve 天然合成旁路/充电+旁路 → 输入恢复自动转旁路 */
+    /* 目标通路合成+切换: 输出请求 + 充电策略
+     * AC present 时 resolve 天然合成旁路/充电+旁路 → 输入恢复自动转旁路 */
     energy_path_t target = resolve_target_path(ac, s_output_requested, s_need_charge);
     if (target != s_target_path)
     {
         path_request(target, ac); /* 拒绝/失败由保护与故障状态接管 */
     }
 
-    /* ⑤ 通路时序推进 (PHASE 状态机: 预充/直连/输出/停充尾段) */
+    /* 通路时序推进 (PHASE 状态机: 预充/直连/输出/停充尾段) */
     if (s_phase != PHASE_IDLE)
     {
         uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
@@ -1057,7 +1057,7 @@ static void work_status_process(void)
         return;
     }
 
-    /* ⑥ 稳态附加管理: 按工作态分派 (风扇已独立到主循环, 此处不再涉及) */
+    /* 稳态附加管理: 按工作态分派 (风扇已独立到主循环, 此处不再涉及) */
     switch (s_target_path)
     {
     case PATH_CHARGE:
@@ -1125,30 +1125,30 @@ static void work_led_process(void)
 void AppMainTask(void *arg)
 {
     (void)arg;
-    /* ① 参数初始化: 读取 Flash 参数 (Legacy AC 阈值不再参与通路选择, 由状态机接管) */
+    /* 参数初始化: 读取 Flash 参数 (Legacy AC 阈值不再参与通路选择, 由状态机接管) */
     param_init();
-    /* ② 外设安全初态: 上电先关风扇/告警灯, 避免残留状态 */
+    /* 外设安全初态: 上电先关风扇/告警灯, 避免残留状态 */
     drv_fan_off(FAN_AUX);
     drv_fan_off(FAN_MAIN);
     drv_led_off(LED_ALM);
-    /* ③ 按键: 初始化扫描, 注册事件回调 (仅 ONOFF 长按 / ACOUT 按下) */
+    /* 按键: 初始化扫描, 注册事件回调 (仅 ONOFF 长按 / ACOUT 按下) */
     mod_key_init();
     mod_key_register_callback(app_main_task_key_event_handler);
     logger_out(LOG_INFO,
                "Power controller: auto-charge(AC 2s stable), INV PD4->1.5s->PD7->0.5s->PD4off->1.5s->PD0");
     for (;;)
     {
-        /* ① 风扇: 独立管理, 始终执行 (故障/关机后仍散热) */
+        /* 风扇: 独立管理, 始终执行 (故障/关机后仍散热) */
         fan_manage(mod_temp_get());
-        /* ② 工作状态机: 保护 + 充电策略 + 通路切换 + 稳态管理 */
+        /* 工作状态机: 保护 + 充电策略 + 通路切换 + 稳态管理 */
         work_status_process();
-        /* ③ 按键: 轮询扫描, 事件经回调分发 (仅 ONOFF 长按 / ACOUT 按下) */
+        /* 按键: 轮询扫描, 事件经回调分发 (仅 ONOFF 长按 / ACOUT 按下) */
         mod_key_poll_handler();
-        /* ④ 指示灯: 非阻塞刷新工作灯 (绿灯 1s 亮灭 / 蓝灯 5s 快闪) */
+        /* 指示灯: 非阻塞刷新工作灯 (绿灯 1s 亮灭 / 蓝灯 5s 快闪) */
         work_led_process();
-        /* ⑤ 显示: 通路/状态有变化时向显示任务发送图标消息 */
+        /* 显示: 通路/状态有变化时向显示任务发送图标消息 */
         display_publish();
-        /* ⑥ 看门狗: 主任务心跳喂狗 */
+        /* 看门狗: 主任务心跳喂狗 */
         bsp_wdg_task_heartbeat(WDG_TASK_MAIN);
         osDelay(20); /* 20ms 任务节拍 */
     }
