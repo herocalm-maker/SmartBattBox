@@ -58,7 +58,6 @@ static energy_path_t s_path = PATH_NONE;
 static uint16_t s_time_min_shown = 0;
 static bool     s_time_shown_valid = false;
 static uint32_t s_time_check_ms = 0;
-static energy_path_t s_path_shown = PATH_NONE; /* 上次显示的通路 (通路变化触发 TextHZ 立即清空) */
 
 /* TextHZ 节流: 1s 检测一次, 频率值变化才写屏 */
 #define TEXT_HZ_CHECK_MS 1000u
@@ -69,6 +68,106 @@ static uint32_t s_hz_check_ms = 0;
 /*====================================================================
  * 显示刷新
  *====================================================================*/
+
+/**
+ * @brief TextTime 更新: 仅充电/放电时显示剩余时间, 其余情况清空。
+ * @param now   当前 tick。
+ * @param force true=通路事件触发立即判定(跳过节流); false=按 3s 节流。
+ * @note  充电显示 TTF(离充满剩余), 放电显示 TTE(可用时间); 快照有效但未成熟显示 0 兜底;
+ *        分钟值变化才写屏, 过滤 TTE/TTF 取整抖动。
+ */
+static void text_time_update(uint32_t now, bool force)
+{
+    if (!force && (uint32_t)(now - s_time_check_ms) < TEXT_TIME_CHECK_MS)
+    {
+        return;
+    }
+    s_time_check_ms = now;
+
+    BATT_INFO_T snapshot;
+    BATT_INFO_T *bat = battery_get_snapshot(&snapshot) ? &snapshot : NULL;
+    bool time_visible = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS ||
+                         s_path == PATH_INVERT);
+    bool chg = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS);
+    char txt[16];
+    uint16_t v = 0;
+    bool ok = false;
+    if (time_visible && chg)
+    {
+        if (bat && bat->ttf_valid)
+        {
+            v = bat->time_to_full_min;
+            ok = true;
+        }
+        else if (bat)
+        {
+            v = 0; /* 快照有效但 TTF 未成熟: 显示 0 兜底 */
+            ok = true;
+        }
+    }
+    else if (time_visible)
+    {
+        if (bat && bat->tte_valid)
+        {
+            v = bat->time_to_empty_min;
+            ok = true;
+        }
+        else if (bat)
+        {
+            v = 0; /* 快照有效但 TTE 未成熟: 显示 0 兜底 */
+            ok = true;
+        }
+    }
+    if (ok)
+    {
+        if (!s_time_shown_valid || v != s_time_min_shown)
+        {
+            s_time_min_shown = v;
+            s_time_shown_valid = true;
+            snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
+            drv_dwin_set_text(VP_TEXT_TIME, txt);
+        }
+    }
+    else
+    {
+        s_time_shown_valid = false; /* 离开充/放: 立即清空 */
+        drv_dwin_set_text(VP_TEXT_TIME, "");
+    }
+}
+
+/**
+ * @brief TextHZ 更新: 逆变输出时显示频率(0Hz 也写 0), 不输出写空。
+ * @param now   当前 tick。
+ * @param force true=通路事件触发立即判定(跳过节流); false=按 1s 节流。
+ * @note  频率四舍五入取整, 值变化才写屏; 停止输出时立即清空一次。
+ */
+static void text_hz_update(uint32_t now, bool force)
+{
+    if (!force && (uint32_t)(now - s_hz_check_ms) < TEXT_HZ_CHECK_MS)
+    {
+        return;
+    }
+    s_hz_check_ms = now;
+
+    METER_INFO_T *m = metering_get_info();
+    char txt[8];
+    if (s_path == PATH_INVERT && m && m->online)
+    {
+        uint16_t v = (uint16_t)(m->vout_freq_hz + 0.5f);
+        if (!s_hz_shown_valid || v != s_hz_shown)
+        {
+            s_hz_shown = v;
+            s_hz_shown_valid = true;
+            snprintf(txt, sizeof txt, "%u", (unsigned)v);
+            drv_dwin_set_text(VP_TEXT_HZ, txt);
+        }
+    }
+    else if (s_hz_shown_valid)
+    {
+        s_hz_shown_valid = false; /* 停止输出: 立即清空 */
+        drv_dwin_set_text(VP_TEXT_HZ, "");
+    }
+}
 
 /**
  * @brief 刷新串口屏全部显示项 (电量条/动画/图标/数值/文本)。
@@ -135,91 +234,10 @@ static void display_refresh(void)
 
     uint32_t now = HAL_GetTick();
 
-    /* --- 通路变化: 停止逆变输出立即清 TextHZ, 不等 1s 节流周期 --- */
-    if (s_path != s_path_shown)
-    {
-        s_path_shown = s_path;
-        if (s_path != PATH_INVERT)
-        {
-            s_hz_shown_valid = false;
-            drv_dwin_set_text(VP_TEXT_HZ, "");
-        }
-    }
-
-    /* --- TextTime (0x2020): 仅充电/放电时显示 ---
-     * 充电: 离充满剩余时间(TTF); 放电: 可用时间(TTE); 其余情况(旁路/静止)清空
-     * 3s 节流: 分钟值变化才重写, 无变化不写屏 */
-    if ((uint32_t)(now - s_time_check_ms) >= TEXT_TIME_CHECK_MS)
-    {
-        s_time_check_ms = now;
-        bool chg = (s_path == PATH_CHARGE || s_path == PATH_CHARGE_BYPASS);
-        uint16_t v = 0;
-        bool ok = false;
-        if (time_visible && chg)
-        {
-            if (bat && bat->ttf_valid)
-            {
-                v = bat->time_to_full_min;
-                ok = true;
-            }
-            else if (bat)
-            {
-                v = 0; /* 快照有效但 TTF 未成熟: 显示 0 兜底 */
-                ok = true;
-            }
-        }
-        else if (time_visible)
-        {
-            if (bat && bat->tte_valid)
-            {
-                v = bat->time_to_empty_min;
-                ok = true;
-            }
-            else if (bat)
-            {
-                v = 0; /* 快照有效但 TTE 未成熟: 显示 0 兜底 */
-                ok = true;
-            }
-        }
-        if (ok)
-        {
-            if (!s_time_shown_valid || v != s_time_min_shown)
-            {
-                s_time_min_shown = v;
-                s_time_shown_valid = true;
-                snprintf(txt, sizeof txt, "%uMIN", (unsigned)v);
-                drv_dwin_set_text(VP_TEXT_TIME, txt);
-            }
-        }
-        else
-        {
-            s_time_shown_valid = false;
-            drv_dwin_set_text(VP_TEXT_TIME, "");
-        }
-    }
-
-    /* --- TextHZ (0x2034): 逆变输出时显示频率 (0Hz 也写 0), 不输出写空 ---
-     * 1s 节流: 频率值变化才重写 */
-    if ((uint32_t)(now - s_hz_check_ms) >= TEXT_HZ_CHECK_MS)
-    {
-        s_hz_check_ms = now;
-        if (s_path == PATH_INVERT && m && m->online)
-        {
-            uint16_t v = (uint16_t)(m->vout_freq_hz + 0.5f);
-            if (!s_hz_shown_valid || v != s_hz_shown)
-            {
-                s_hz_shown = v;
-                s_hz_shown_valid = true;
-                snprintf(txt, sizeof txt, "%u", (unsigned)v);
-                drv_dwin_set_text(VP_TEXT_HZ, txt);
-            }
-        }
-        else if (s_hz_shown_valid)
-        {
-            s_hz_shown_valid = false; /* 停止输出: 清空一次 */
-            drv_dwin_set_text(VP_TEXT_HZ, "");
-        }
-    }
+    /* 周期路径: TextTime/TextHZ 按节流刷新数值
+     * (通路变化时的即时显示/清空由 EVT_DISP_ICON 消息 force 触发) */
+    text_time_update(now, false);
+    text_hz_update(now, false);
 }
 
 /*====================================================================
@@ -287,6 +305,9 @@ void DisplayTask(void *argument)
                     s_icon_hz  = Msg.Paras.Value[3];
                     s_icon_ups = Msg.Paras.Value[4];
                     refresh_cnt = REFRESH_DIV;
+                    /* 通路变化: 立即更新 TextTime/TextHZ 的显示/清空, 不等节流周期 */
+                    text_time_update(HAL_GetTick(), true);
+                    text_hz_update(HAL_GetTick(), true);
                     break;
                 }
 
