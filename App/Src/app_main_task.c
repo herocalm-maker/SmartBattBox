@@ -240,20 +240,65 @@ static void enter_fault(uint32_t alarm)
 }
 
 /**
- * @brief 通过驱动互锁开启一路输出。
+ * @brief 继电器业务互锁判定 (纯逻辑, 不操作硬件)。
+ * @param id 待吸合的继电器编号。
+ * @return true：允许吸合；false：违反互锁/顺序规则。
+ * @note 依据命令位 (drv_relay_is_on) 判定, 非硬件反馈; 规则:
+ *   1) 市电侧 (AC_CTRL/CHG_IN/CHG_OUT) 与逆变侧 (INV_OUT/INV_PRO/INV_IN) 互斥;
+ *   2) 启动顺序: PD7(INV_IN) 需 PD4(INV_PRO) 先合; PD0(INV_OUT) 需 PD7 保持
+ *      (三段时序中 PD4 已在 PD0 前断开); PD3(CHG_OUT) 需 PD2(CHG_IN) 先合。
+ */
+static bool relay_interlock_ok(relay_id_enum id)
+{
+    /* 市电侧吸合: 逆变侧必须全断 */
+    if ((id == RELAY_AC_CTRL || id == RELAY_CHG_IN || id == RELAY_CHG_OUT) &&
+        (drv_relay_is_on(RELAY_INV_OUT) || drv_relay_is_on(RELAY_INV_PRO) ||
+         drv_relay_is_on(RELAY_INV_IN)))
+    {
+        return false;
+    }
+    /* 逆变侧吸合: 市电侧必须全断 */
+    if ((id == RELAY_INV_OUT || id == RELAY_INV_PRO || id == RELAY_INV_IN) &&
+        (drv_relay_is_on(RELAY_AC_CTRL) || drv_relay_is_on(RELAY_CHG_IN) ||
+         drv_relay_is_on(RELAY_CHG_OUT)))
+    {
+        return false;
+    }
+    /* 启动顺序依赖 */
+    if (id == RELAY_INV_IN && !drv_relay_is_on(RELAY_INV_PRO))
+    {
+        return false;
+    }
+    if (id == RELAY_INV_OUT && !drv_relay_is_on(RELAY_INV_IN))
+    {
+        return false;
+    }
+    if (id == RELAY_CHG_OUT && !drv_relay_is_on(RELAY_CHG_IN))
+    {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief 按业务互锁开启一路输出。
  * @param id 继电器输出编号。
  * @return true：命令已接受；false：互锁拒绝/ID 无效。
- * @note 互锁判定基于命令位 (s_relay_state), 非硬件反馈——软件判断不了
- *       继电器真实状态, 故拒绝不视为故障, 仅记录日志, 由调用方安全收敛。
+ * @note 互锁判定基于命令位, 非硬件反馈——软件判断不了继电器真实状态,
+ *       故拒绝不视为故障, 仅记录日志, 由调用方安全收敛。
  */
 static bool relay_on(relay_id_enum id)
 {
+    if (!relay_interlock_ok(id))
+    {
+        logger_out(LOG_WARN, "relay %d on rejected (interlock)", (int)id);
+        return false;
+    }
     if (drv_relay_on(id))
     {
         s_ui_dirty = true;
         return true;
     }
-    logger_out(LOG_WARN, "relay %d on rejected (interlock)", (int)id);
     return false;
 }
 

@@ -39,40 +39,15 @@ void drv_relay_init(void)
 
 /*********************************************************************
  * @fn      drv_relay_on
- * @brief   吸合指定继电器
+ * @brief   直接吸合指定继电器 (仅 GPIO 置位, 不做互锁判定)
  * @param   id  继电器 ID
  * @return  bool true=成功 false=ID 无效
+ * @note    互锁/时序等业务规则由上层 (AppMainTask) 负责, 驱动只执行
+ *          原子硬件操作; s_relay_state 为命令位, 非触点反馈。
 ********************************************************************/
 bool drv_relay_on(relay_id_enum id)
 {
     if ((unsigned)id >= RELAY_CNT)
-    {
-        return false;
-    }
-    /* Only AppMainTask sequences these relays; command bits are not feedback. */
-    if ((id == RELAY_AC_CTRL || id == RELAY_CHG_IN || id == RELAY_CHG_OUT) &&
-        (drv_relay_is_on(RELAY_INV_OUT) || drv_relay_is_on(RELAY_INV_PRO) ||
-         drv_relay_is_on(RELAY_INV_IN)))
-    {
-        return false;
-    }
-    if ((id == RELAY_INV_OUT || id == RELAY_INV_PRO || id == RELAY_INV_IN) &&
-        (drv_relay_is_on(RELAY_AC_CTRL) || drv_relay_is_on(RELAY_CHG_IN) ||
-         drv_relay_is_on(RELAY_CHG_OUT)))
-    {
-        return false;
-    }
-    /* 逆变启动三段时序 (App 层): PD4(预充)→1.5s→PD7(主接触器)→0.5s→PD4断→1.5s→PD0.
-     * 故 PD0 合闸时 PD4 已按时序断开, 互锁仅要求直流母线已建立 (PD7 保持). */
-    if (id == RELAY_INV_IN && !drv_relay_is_on(RELAY_INV_PRO))
-    {
-        return false;
-    }
-    if (id == RELAY_INV_OUT && !drv_relay_is_on(RELAY_INV_IN))
-    {
-        return false;
-    }
-    if (id == RELAY_CHG_OUT && !drv_relay_is_on(RELAY_CHG_IN))
     {
         return false;
     }
