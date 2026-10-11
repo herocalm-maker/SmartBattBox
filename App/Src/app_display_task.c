@@ -97,7 +97,7 @@ static void display_refresh(void)
     drv_dwin_set_value(VP_ICON_HZ,   s_icon_hz);
     drv_dwin_set_value(VP_ICON_UPS,  s_icon_ups);
     /* --- 温度图标 (0x200E): 任一温度 >= 风扇开启阈值(35℃) 或 OTP 故障
-     * 告警 -> 显示 8 (与 fan_hysteresis 开启条件同步, 温度过高即有显示) --- */
+     * 告警 -> 显示 8 (与 fan_manage 开启条件同步, 温度过高即有显示) --- */
     const TEMP_INFO_T *t = mod_temp_get();
     bool temp_hot = (t != NULL &&
                      (t->chg_temp >= BOARD_PROT_FAN_ON_TH ||

@@ -1,11 +1,12 @@
 /**
  * @file app_main_task.c
- * @brief 主任务拥有通路状态机，负责保护、按键和工作指示。
- * @note 逆变启动：PD4预充500ms → PD7吸合 → 100ms后PD0输出 (PD4保持)。
- *       正常停充/停逆变按 1.5s 顺序断电(先断输出端, 延时后断输入端/主接触器)。
+ * @brief 应用层主任务: 工作状态机(保护/充电策略/通路切换/稳态管理) + 风扇 + 按键与指示。
+ * @note 逆变启动三段时序: PD4预充1.5s → PD7吸合 → 0.5s后PD4断(电池直连) → 1.5s后PD0输出。
+ *       停充/停逆变按 1.5s 顺序断电(先断输出端, 延时后断输入端/主接触器)。
  *       继电器软件状态仅表示输出命令，不代表触点反馈。
- *       充满检测：MAX17263 FStat.FQ 置位时自动停止充电 (BY_BYPASS 保留AC直通)。
- *       按键: AC IN=旁路开关; AC OUT=逆变(有AC维持旁路); 充电自动(220V稳定2s后)。
+ *       充满检测: MAX17263 FStat.FQ 置位时自动停止充电 (CHARGE_BYPASS 保留AC直通)。
+ *       按键: 仅 AC OUT=输出开关(有220V→旁路 / 无→逆变); 充电由接入220V自动触发;
+ *             AC IN 已在应用层屏蔽。主循环 20ms 节拍。
  */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -74,7 +75,7 @@ static energy_path_t s_target_path = PATH_NONE;
 static path_phase_t s_phase = PHASE_IDLE;
 static uint32_t s_phase_since;
 static bool s_output_requested; /* 旁路/逆变输出请求 (AC IN/AC OUT 键 toggle) */
-static bool s_need_charge;     /* 自动充电生效标志 (auto_charge_update 维护) */
+static bool s_need_charge;     /* 自动充电生效标志 (charge_strategy_update 维护) */
 static uint32_t s_inv_idle_since; /* 逆变无功率计时起点, 0=未计时 */
 static bool s_shutting_down;
 static bool s_shutdown_complete;
@@ -460,7 +461,7 @@ static bool inverter_stage_ready(ac_input_state_t ac, uint32_t elapsed)
 }
 /* Invoked every main-loop tick, also while keys/charger startup are pending. */
 /**
- * @brief 按当前阶段推进通路状态机 (由 power_process 每 tick 调用)。
+ * @brief 按当前阶段推进通路状态机 (由 work_status_process ⑤ 每 tick 调用)。
  * @param ac 输入计量模块提供的市电状态。
  * @param elapsed 当前阶段已持续的毫秒数。
  * @note 各阶段按计时 + path_permitted/inverter_stage_ready 复查推进, 不阻塞。
@@ -632,63 +633,6 @@ static void power_phase_process(ac_input_state_t ac, uint32_t elapsed)
 }
 
 /**
- * @brief 推进充电、逆变和旁路的非阻塞通路状态机。
- *
- * 每 20ms 由主循环调用; 依赖 s_phase + s_phase_since 计时推进, 不阻塞等待.
- * 阶段语义:
- *   PHASE_RELEASE_AC       - 撤销全部输出后等待继电器释放 (PATH_RELEASE_MS)
- *   PHASE_RELEASE_DC       - 按是否仍带逆变输入决定释放时长, 再按目标通路开启
- *   PHASE_START_CHARGE     - 开充电回路 + 可选旁路 (CHG_IN→1500ms→CHG_OUT)
- *   PHASE_PRECHARGE      - 逆变预充 (PD4), 1500ms 后吸合 PD7
- *   PHASE_START_DC       - PD7 后 500ms 断开 PD4 (电池直连逆变器输入)
- *   PHASE_START_INVERTER - 直连后 1500ms 开 PD0 输出, 完成时 path_commit
- *   PHASE_STOP_CHARGE      - 停充尾段: 1.5s 后断 CHG_IN (keep_bypass: 提交旁路 / 进机械释放)
- *   PHASE_STOP_INV_TAIL    - 顺序断电: 1.5s 后断 PD7/PD4 再进机械释放
- * 安全: 每次进入/推进前都过 path_permitted() 复查 (输入/电池/温度).
- */
-static void power_process(void)
-{
-    if (s_shutting_down)
-    {
-        shutdown_process();
-        return;
-    }
-    if (s_state == SYS_STATUS_FAULT)
-    {
-        return;
-    }
-    ac_input_state_t ac = mod_metering_get_ac_input().state;
-    /* 市电状态变化(接入/掉电/未知)时立即标记 UI 脏, 主循环 display_publish 即时发
-     * EVT_DISP_ICON 刷新 ICON3(220V 图标), 不等数值 500ms 刷新周期. */
-    static ac_input_state_t s_last_ac_state = AC_INPUT_UNKNOWN;
-    if (ac != s_last_ac_state)
-    {
-        s_last_ac_state = ac;
-        s_ui_dirty = true;
-    }
-    if (path_needs_ac(s_target_path) && ac != AC_INPUT_PRESENT)
-    {
-        input_abort();
-        return;
-    }
-    /* 输入恢复时优先转旁路，避免继续推进逆变启动。 */
-    if (s_output_requested && s_target_path == PATH_INVERT && ac == AC_INPUT_PRESENT)
-    {
-        if (!path_request(PATH_BYPASS, ac))
-        {
-            power_abort();
-        }
-        return;
-    }
-    if (s_phase == PHASE_IDLE)
-    {
-        return;
-    }
-    uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
-    power_phase_process(ac, elapsed);
-}
-
-/**
  * @brief 处理ONOFF长按：停止通路、短响提示并按现有延时断电。
  */
 static void handle_onoff_key(void)
@@ -740,7 +684,7 @@ static energy_path_t resolve_target_path(ac_input_state_t ac, bool want_output, 
 /**
  * @brief 处理 AC OUT 键 (唯一 AC 功能键): 有 220V 时旁路直接输出,
  *        无 220V 时电池逆变输出 (互斥, 由 resolve_target_path 合成)。
- * @note 充电由自动策略(auto_charge_update)维护, 接入 220V 自动启充/充满自停。
+ * @note 充电由自动策略(charge_strategy_update)维护, 接入 220V 自动启充/充满自停。
  */
 static void handle_path_key(void)
 {
@@ -768,16 +712,13 @@ static void handle_path_key(void)
 }
 
 /**
- * @brief 自动充电策略: 220V 稳定 2s 且未充满时启用充电, 与输出请求合成目标。
- * @note 每 20ms tick 调用; 防抖计时在 AC 波动时清零; 充满/无AC 自动收敛停充。
+ * @brief 充电策略: 220V 稳定 2s 且未充满时置 need_charge (由 work_status_process ③ 调用)。
+ * @param ac 输入计量模块提供的市电状态。
+ * @note 防抖计时在 AC 波动(掉电再接入)时清零; 充满/无AC 自动收敛;
+ *       故障/关机门控由 work_status_process 外部保证。
  */
-static void auto_charge_update(void)
+static void charge_strategy_update(ac_input_state_t ac)
 {
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
-    {
-        return;
-    }
-    ac_input_state_t ac = mod_metering_get_ac_input().state;
     static bool s_ac_stable;
     static uint32_t s_ac_stable_since;
     static ac_input_state_t s_ac_log = AC_INPUT_UNKNOWN; /* 诊断: AC 状态变化日志 */
@@ -823,21 +764,14 @@ static void auto_charge_update(void)
 }
 
 /**
- * @brief 逆变输出看门狗: 无负载(60s)或输出计量离线时自动停止输出。
+ * @brief 逆变稳态管理: 无负载(60s)或输出计量离线时自动停止输出。
  * @note  - 输出 HLW8110 离线(检测不到输出) -> 立即关断
  *        - vout_p_w < 1W 连续 60s -> 自动关断
  *        - 关断即清除 s_output_requested, 不会自动重启, 等下次 AC OUT 键触发
+ *        - 仅由 work_status_process 稳态分派(逆变态)调用, 状态/通路门控外部保证
  */
 static void inverter_idle_watchdog(void)
 {
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
-    {
-        return;
-    }
-    if (s_target_path != PATH_INVERT)
-    {
-        return;
-    }
     METER_INFO_T *m = metering_get_info();
     uint32_t now = HAL_GetTick();
     ac_input_state_t ac = mod_metering_get_ac_input().state;
@@ -899,10 +833,16 @@ static void app_main_task_key_event_handler(uint8_t key_code)
 }
 /* ---- work_status_process 拆分子流程 (三段独立职责) ---- */
 
-/* 风扇滞回: 超温开, 回落到阈值下关 (温度无效则保持当前, 不误动作)
- * 主风扇: 电池/充电器温度超阈值开启 (需求: bat/chg 任一 >= 35℃)
- * 辅风扇: 逆变器温度超阈值开启 (逆变/旁路输出时逆变器工作发热) */
-static void fan_hysteresis(const TEMP_INFO_T *t)
+/*********************************************************************
+ * @fn      fan_manage
+ * @brief   风扇独立管理: 超温开启, 回落到阈值下关闭 (滞回)。
+ * @param   t 温度快照 (bat/chg/inv 三路 NTC), 可为 NULL。
+ * @note    主风扇: bat/chg 任一 >= FAN_ON_TH 开启; 辅风扇: inv >= FAN_ON_TH 开启;
+ *          均低于 FAN_OFF_TH 关闭; 温度无效(t==NULL)保持现状不误动作;
+ *          由主循环始终调用, 故障/关机后仍继续散热。
+ * @return  none
+*********************************************************************/
+static void fan_manage(const TEMP_INFO_T *t)
 {
     if (!t)
     {
@@ -933,7 +873,15 @@ static void fan_hysteresis(const TEMP_INFO_T *t)
     }
 }
 
-/* 温度保护: 按当前通路方向检查电池/充电/逆变过温, 触发即进故障 */
+/*********************************************************************
+ * @fn      thermal_protect
+ * @brief   温度保护: 按当前通路方向检查电池/充电/逆变过温。
+ * @param   t 温度快照 (可能为 NULL)。
+ * @param   charge 充电方向活跃 (目标通路或实测继电器)。
+ * @param   invert 逆变方向活跃 (目标通路或实测继电器)。
+ * @return  true: 已进入故障; false: 无过温。
+ * @note    电池过温仅在有通路时检查; 充电/逆变过温按方向分别触发 OTP。
+*********************************************************************/
 static bool thermal_protect(const TEMP_INFO_T *t, bool charge, bool invert)
 {
     if (!t)
@@ -958,7 +906,15 @@ static bool thermal_protect(const TEMP_INFO_T *t, bool charge, bool invert)
     return false;
 }
 
-/* 电池保护: 数据无效或方向相关故障位, 延时跳闸进故障 */
+/*********************************************************************
+ * @fn      battery_protect
+ * @brief   电池保护: 数据无效或方向相关故障位, 延时跳闸进故障。
+ * @param   charge 充电方向活跃。
+ * @param   invert 逆变方向活跃。
+ * @return  true: 已进入故障; false: 正常或仍在延时计时。
+ * @note    稳态延时 BATTERY_ACTION_DELAY_MS 跳闸防误断;
+ *          启动中(PHASE 非 IDLE)立即跳闸 —— 禁止使用无效电池数据完成起动。
+*********************************************************************/
 static bool battery_protect(bool charge, bool invert)
 {
     if (!charge && !invert)
@@ -992,8 +948,13 @@ static bool battery_protect(bool charge, bool invert)
     return false;
 }
 
-/* 充满自动断充: FStat.FQ 上升沿检测; 仅在稳定充电态触发一次.
- * CHARGE_BYPASS 时仅停充电保留 AC 直通输出; FQ 清零(转放电)后可再次触发. */
+/*********************************************************************
+ * @fn      full_charge_auto_stop
+ * @brief   充满自动断充: MAX17263 FStat.FQ 上升沿检测, 仅在稳定充电态触发一次。
+ * @note    CHARGE_BYPASS 时仅停充电, 保留 AC 直通输出; FQ 清零(转放电)后可再次触发;
+ *          由 work_status_process 稳态分派(充电/充电+旁路态)调用。
+ * @return  none
+*********************************************************************/
 static void full_charge_auto_stop(void)
 {
     if (s_state == SYS_STATUS_FAULT || s_shutting_down || s_phase != PHASE_IDLE ||
@@ -1027,43 +988,88 @@ static void full_charge_auto_stop(void)
     }
 }
 
-/* Thermal control follows active/starting routes, including charge+bypass.
- * Fans continue cooling hot components after route changes and faults. */
 /**
- * @brief 处理风扇回差控制及当前通路的温度、电池保护。
+ * @brief 工作状态机: 统一管理保护、充电策略、通路切换与稳态附加管理。
  *
- * 按顺序执行: 风扇滞回(始终) → 温度保护 → 电池保护 → 充满自动断充; 任一路进故障即返回.
+ * 阶段流水 (每 20ms, 主循环调用):
+ *   门控(关机→shutdown_process / 故障→保持全断)
+ *   → ① 温度/电池方向保护 (启动中立即, 稳态延时跳闸)
+ *   → ② AC 掉电守卫 (需市电的通路在 220V 丢失/未知时立即停止)
+ *   → ③ 充电策略 (AC 稳定 2s → need_charge)
+ *   → ④ 目标通路合成+切换 (输出请求+充电策略; AC 恢复自动转旁路)
+ *   → ⑤ PHASE 时序推进 (预充/直连/输出/停充尾段)
+ *   → ⑥ 稳态附加管理 (按工作态分派: 充电→充满停充 / 逆变→空闲看门狗 / 空闲→无)
+ * 工作态由 s_target_path 派生, 不新增状态变量。
  */
 static void work_status_process(void)
 {
-    const TEMP_INFO_T *t = mod_temp_get();
-
-    /* 1. 风扇滞回: 始终生效, 故障/关机后仍继续散热 */
-    fan_hysteresis(t);
-
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    if (s_shutting_down)
     {
+        shutdown_process();      /* 关机态: 推进释放等待/数据保存/断电 */
         return;
     }
+    if (s_state == SYS_STATUS_FAULT)
+    {
+        return;                  /* 故障态: 保持全断, 等按键/复位 */
+    }
 
+    ac_input_state_t ac = mod_metering_get_ac_input().state;
+    /* AC 状态变化立即标记 UI, 主循环 display_publish 即时刷新 220V 图标 */
+    static ac_input_state_t s_last_ac_state = AC_INPUT_UNKNOWN;
+    if (ac != s_last_ac_state)
+    {
+        s_last_ac_state = ac;
+        s_ui_dirty = true;
+    }
+
+    /* ① 异常监督: 温度/电池方向保护 (启动中立即, 稳态延时跳闸) */
+    const TEMP_INFO_T *t = mod_temp_get();
     bool charge = path_active_charge();
     bool invert = path_active_invert();
-
-    /* 2. 温度保护: 按通路方向过温即跳故障 */
-    if (thermal_protect(t, charge, invert))
+    if (thermal_protect(t, charge, invert) || battery_protect(charge, invert))
     {
         return;
     }
 
-    /* 3. 电池保护: 数据无效/方向故障位, 延时跳闸 */
-    if (battery_protect(charge, invert))
+    /* ② AC 掉电守卫: 充电/旁路通路在 220V 丢失或未知时立即停止, 等下次按键 */
+    if (path_needs_ac(s_target_path) && ac != AC_INPUT_PRESENT)
     {
+        input_abort();
         return;
     }
 
-    /* 4. 充满自动断充: FQ 上升沿触发, 停止充电 (BY_BYPASS 保留 AC 直通) */
-    full_charge_auto_stop();
+    /* ③ 充电策略: 220V 稳定 2s 且未充满 → need_charge (波动清零防抖) */
+    charge_strategy_update(ac);
 
+    /* ④ 目标通路合成+切换: 输出请求 + 充电策略
+     *    AC present 时 resolve 天然合成旁路/充电+旁路 → 输入恢复自动转旁路 */
+    energy_path_t target = resolve_target_path(ac, s_output_requested, s_need_charge);
+    if (target != s_target_path)
+    {
+        path_request(target, ac); /* 拒绝/失败由保护与故障状态接管 */
+    }
+
+    /* ⑤ 通路时序推进 (PHASE 状态机: 预充/直连/输出/停充尾段) */
+    if (s_phase != PHASE_IDLE)
+    {
+        uint32_t elapsed = (uint32_t)(HAL_GetTick() - s_phase_since);
+        power_phase_process(ac, elapsed);
+        return;
+    }
+
+    /* ⑥ 稳态附加管理: 按工作态分派 (风扇已独立到主循环, 此处不再涉及) */
+    switch (s_target_path)
+    {
+    case PATH_CHARGE:
+    case PATH_CHARGE_BYPASS:
+        full_charge_auto_stop();  /* 充电/充电+旁路态: 充满自动停充 */
+        break;
+    case PATH_INVERT:
+        inverter_idle_watchdog(); /* 逆变态: 无负载 60s / 计量离线自动停 */
+        break;
+    default:
+        break;                    /* 空闲态: 无附加管理 */
+    }
     drv_led_off(LED_ALM);
 }
 /* Powered MCU heartbeat, independent of the selected AC route. No delays. */
@@ -1129,11 +1135,10 @@ void AppMainTask(void *arg)
                "Power controller: auto-charge(AC 2s stable), INV PD4->1.5s->PD7->0.5s->PD4off->1.5s->PD0");
     for (;;)
     {
-        /* Apply source/fault changes before accepting a new key request. */
+        /* ① 风扇: 独立管理, 始终执行 (故障/关机后仍散热) */
+        fan_manage(mod_temp_get());
+        /* ② 工作状态机: 保护 + 充电策略 + 通路切换 + 稳态管理 */
         work_status_process();
-        power_process();
-        auto_charge_update();
-        inverter_idle_watchdog();
         mod_key_poll_handler();
         work_led_process();
         display_publish();
