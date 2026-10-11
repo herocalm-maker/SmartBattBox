@@ -901,31 +901,56 @@ static void fan_manage(const TEMP_INFO_T *t)
  * @param   t 温度快照 (可能为 NULL)。
  * @param   charge 充电方向活跃 (目标通路或实测继电器)。
  * @param   invert 逆变方向活跃 (目标通路或实测继电器)。
- * @return  true: 已进入故障; false: 无过温。
- * @note    电池过温仅在有通路时检查; 充电/逆变过温按方向分别触发 OTP。
+ * @return  true: 已进入故障; false: 无过温或仍在延时计时。
+ * @note    1) 超异常阈值后须持续 THERMAL_FAULT_DELAY_MS 才 enter_fault,
+ *             期间回落即复位计时 —— 防止瞬态过温误停机;
+ *          2) 风扇启动阈值 < 异常阈值: 超风扇值仅开对应风扇, 由
+ *             fan_manage 独立管理 (本函数不负责风扇);
+ *          3) 电池过温仅在有通路时检查; 充电/逆变过温按方向触发 OTP。
 *********************************************************************/
+#define THERMAL_FAULT_DELAY_MS 10000u /* 过温持续 10s 才跳闸 (防抖) */
 static bool thermal_protect(const TEMP_INFO_T *t, bool charge, bool invert)
 {
+    static bool s_thermal_trip_pending;   /* 过温持续时间未到: true */
+    static uint32_t s_thermal_trip_since; /* 过温起算时间戳 */
+
     if (!t)
     {
+        s_thermal_trip_pending = false;
         return false;
     }
+    /* 判定当前超限方向 (优先级: 电池 > 充电 > 逆变) */
+    uint32_t trip_bit = 0u;
     if (s_target_path != PATH_NONE && t->bat_temp >= BOARD_PROT_BAT_TMP_FAULT_TH)
     {
-        enter_fault(SYS_ALARM_BAT_OTP);
-        return true;
+        trip_bit = SYS_ALARM_BAT_OTP;
     }
-    if (charge && t->chg_temp >= BOARD_PROT_CHG_TMP_FAULT_TH)
+    else if (charge && t->chg_temp >= BOARD_PROT_CHG_TMP_FAULT_TH)
     {
-        enter_fault(SYS_ALARM_CHG_OTP);
-        return true;
+        trip_bit = SYS_ALARM_CHG_OTP;
     }
-    if (invert && t->inv_temp >= BOARD_PROT_INV_TMP_FAULT_TH)
+    else if (invert && t->inv_temp >= BOARD_PROT_INV_TMP_FAULT_TH)
     {
-        enter_fault(SYS_ALARM_INV_OTP);
+        trip_bit = SYS_ALARM_INV_OTP;
+    }
+
+    if (trip_bit == 0u)
+    {
+        /* 温度回落到异常阈值下: 复位计时, 不跳闸 */
+        s_thermal_trip_pending = false;
+        return false;
+    }
+    if (!s_thermal_trip_pending)
+    {
+        s_thermal_trip_pending = true;
+        s_thermal_trip_since = HAL_GetTick();
+    }
+    if ((uint32_t)(HAL_GetTick() - s_thermal_trip_since) >= THERMAL_FAULT_DELAY_MS)
+    {
+        enter_fault(trip_bit);
         return true;
     }
-    return false;
+    return false; /* 超异常阈值但未满 10s: 仅持续计时, 风扇已开启 */
 }
 
 /*********************************************************************

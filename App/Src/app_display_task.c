@@ -251,10 +251,18 @@ static void display_refresh(void)
  * 空格数取控件 VP 到下一占用 VP 的安全间隔 (≤ 间隔, 不越界相邻变量) */
 static void display_init_clear_text(void)
 {
-    drv_dwin_set_text(VP_TEXT_ERR,   "    ");          /* 0x2010~0x2011 (间隔2字) */
-    drv_dwin_set_text(VP_TEXT_ALARM, "    ");          /* 0x2012~0x2013 (间隔2字) */
-    drv_dwin_set_text(VP_TEXT_TIME,  "                "); /* 0x2020~0x202F (间隔16字) */
-    drv_dwin_set_text(VP_TEXT_HZ,    "    ");          /* 0x2034~0x2035 (间隔2字) */
+    char sp[VP_TEXT_ERR_LEN];
+    memset(sp, ' ', sizeof(sp));          /* ERR 6 字符: 0x2050~0x2052 */
+    drv_dwin_set_text(VP_TEXT_ERR, sp);
+    char spa[VP_TEXT_ALARM_LEN];
+    memset(spa, ' ', sizeof(spa));        /* ALARM 8 字符: 0x2060~0x2063 */
+    drv_dwin_set_text(VP_TEXT_ALARM, spa);
+    char spt[VP_TEXT_TIME_LEN];
+    memset(spt, ' ', sizeof(spt));        /* TIME 9 字符: 0x2036~0x203A */
+    drv_dwin_set_text(VP_TEXT_TIME, spt);
+    char sph[VP_TEXT_HZ_LEN];
+    memset(sph, ' ', sizeof(sph));        /* HZ 2 字符: 0x2030 */
+    drv_dwin_set_text(VP_TEXT_HZ, sph);
 }
 
 /**
