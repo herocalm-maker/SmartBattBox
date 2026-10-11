@@ -1125,10 +1125,13 @@ static void work_led_process(void)
 void AppMainTask(void *arg)
 {
     (void)arg;
-    param_init(); /* Legacy AC threshold settings no longer select power routes. */
+    /* ① 参数初始化: 读取 Flash 参数 (Legacy AC 阈值不再参与通路选择, 由状态机接管) */
+    param_init();
+    /* ② 外设安全初态: 上电先关风扇/告警灯, 避免残留状态 */
     drv_fan_off(FAN_AUX);
     drv_fan_off(FAN_MAIN);
     drv_led_off(LED_ALM);
+    /* ③ 按键: 初始化扫描, 注册事件回调 (仅 ONOFF 长按 / ACOUT 按下) */
     mod_key_init();
     mod_key_register_callback(app_main_task_key_event_handler);
     logger_out(LOG_INFO,
