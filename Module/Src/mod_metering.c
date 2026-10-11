@@ -315,6 +315,17 @@ void mod_metering_handler(void)
     }
 }
 
+/**
+ * @brief  复位输出通道"无数据"计数。
+ * @note   进入逆变/旁路输出通路时由 App 层调用: 输出通道 HLW8110 若由
+ *         输出端供电, 空闲期会持续读失败而累积计数, 导致 out_ok 假失效;
+ *         启动时清零, 让有效性从输出建立时刻重新判定。
+ */
+void mod_metering_reset_out_no_data(void)
+{
+    vout_no_data_count = 0;
+}
+
 /** @brief  获取计量信息指针 (仅 online 时有效) */
 METER_INFO_T* metering_get_info(void)
 {

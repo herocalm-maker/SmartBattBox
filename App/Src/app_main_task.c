@@ -190,12 +190,17 @@ static void path_commit(energy_path_t path)
             state_set(SYS_STATUS_CHARGE);
             break;
         case PATH_CHARGE_BYPASS:
+            /* 旁路直通: 输出计量从本时刻起算 (输出端 HLW8110 可能刚上电) */
+            mod_metering_reset_out_no_data();
             state_set(SYS_STATUS_CHARGE_BYPASS);
             break;
         case PATH_BYPASS:
+            mod_metering_reset_out_no_data();
             state_set(SYS_STATUS_BYPASS);
             break;
         case PATH_INVERT:
+            /* 逆变输出: 输出计量从本时刻起算, 避免空闲期假失效误停 */
+            mod_metering_reset_out_no_data();
             state_set(SYS_STATUS_OUTPOWER);
             break;
         default:

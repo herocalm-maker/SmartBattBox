@@ -62,9 +62,17 @@ typedef struct {
 void mod_metering_init(void);
 
 /**
- * @brief  周期处理 (建议 200ms 调用一次)
+ * @brief  周期处理 (建议 200ms 调用一次, 内部 1s 节流)
  */
 void mod_metering_handler(void);
+
+/**
+ * @brief 复位输出通道"无数据"计数。
+ * @note 输出通道 HLW8110 若由逆变/旁路输出端供电, 空闲期可能读失败;
+ *       进入输出通路时清零, 使通道有效性从启动时刻重新累计, 避免
+ *       空闲期累计的假失效立即触发输出守卫。
+ */
+void mod_metering_reset_out_no_data(void);
 
 /**
  * @brief  获取计量信息指针
