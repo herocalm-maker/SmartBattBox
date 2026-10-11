@@ -80,7 +80,7 @@ static uint32_t s_inv_idle_since; /* 逆变无功率计时起点, 0=未计时 */
 static bool s_shutting_down;
 static bool s_shutdown_complete;
 static uint32_t s_dc_release_ms = PATH_RELEASE_MS;
-static volatile SYS_STATUS_T s_state = SYS_STATUS_IDLE;
+static bool s_fault_active; /* 故障锁死标志 (enter_fault 置位, 仅重启清除) */
 static bool s_fan_aux_on, s_fan_main_on;
 static bool s_ui_dirty = true;
 static bool s_battery_trip_pending;
@@ -88,12 +88,43 @@ static uint32_t s_battery_trip_since;
 static bool s_stop_chg_keep_bypass; /* 停充尾段提交目标: true=保留旁路(PATH_BYPASS), false=进机械释放 */
 
 /**
- * @brief 读取当前系统运行状态。
+ * @brief 由故障标志 + 关机标志 + 时序阶段 + 当前通路派生系统运行状态。
+ * @return 当下应呈现的 SYS_STATUS_T。
+ * @note  单一数据源: 不再独立维护状态变量, 消除状态与通路/阶段不一致风险。
+ *          故障优先级最高; 关机/过渡中为 SWITCHING; 稳态按当前通路映射。
+ */
+static SYS_STATUS_T state_derive(void)
+{
+    if (s_fault_active)
+    {
+        return SYS_STATUS_FAULT;
+    }
+    if (s_shutting_down || s_phase != PHASE_IDLE)
+    {
+        return SYS_STATUS_SWITCHING;
+    }
+    switch (s_cur_path)
+    {
+        case PATH_CHARGE:
+            return SYS_STATUS_CHARGE;
+        case PATH_CHARGE_BYPASS:
+            return SYS_STATUS_CHARGE_BYPASS;
+        case PATH_BYPASS:
+            return SYS_STATUS_BYPASS;
+        case PATH_INVERT:
+            return SYS_STATUS_OUTPOWER;
+        default:
+            return SYS_STATUS_IDLE;
+    }
+}
+
+/**
+ * @brief 读取当前系统运行状态（实时派生）。
  * @return 当前系统状态枚举值。
  */
 SYS_STATUS_T state_get(void)
 {
-    return s_state;
+    return state_derive();
 }
 
 /**
@@ -137,20 +168,6 @@ static bool battery_path_ok(energy_path_t path, BATT_INFO_T *bat, uint32_t *faul
 }
 
 /**
- * @brief 更新系统状态，并在变化时请求刷新显示。
- * @param state 新的系统运行状态。
- */
-static void state_set(SYS_STATUS_T state)
-{
-    if (s_state != state)
-    {
-        logger_out(LOG_INFO, "ST %d -> %d", (int)s_state, (int)state);
-        s_state = state;
-        s_ui_dirty = true;
-    }
-}
-
-/**
  * @brief 非阻塞发送通路状态+图标消息给显示任务，队列满时留待重试。
  * @note  图标值由目标通路语义派生 (充电/逆变/旁路); 充电图标充满后由显示端强制关闭。
  */
@@ -184,27 +201,21 @@ static void path_commit(energy_path_t path)
     s_cur_path = s_target_path = path;
     s_phase = PHASE_IDLE;
     s_ui_dirty = true;
+    /* 运行状态由 state_derive() 按当前通路自动映射, 无需显式设置 */
     switch (path)
     {
-        case PATH_CHARGE:
-            state_set(SYS_STATUS_CHARGE);
-            break;
         case PATH_CHARGE_BYPASS:
             /* 旁路直通: 输出计量从本时刻起算 (输出端 HLW8110 可能刚上电) */
             mod_metering_reset_out_no_data();
-            state_set(SYS_STATUS_CHARGE_BYPASS);
             break;
         case PATH_BYPASS:
             mod_metering_reset_out_no_data();
-            state_set(SYS_STATUS_BYPASS);
             break;
         case PATH_INVERT:
             /* 逆变输出: 输出计量从本时刻起算, 避免空闲期假失效误停 */
             mod_metering_reset_out_no_data();
-            state_set(SYS_STATUS_OUTPOWER);
             break;
         default:
-            state_set(SYS_STATUS_IDLE);
             break;
     }
 }
@@ -233,7 +244,7 @@ static void enter_fault(uint32_t alarm)
     s_cur_path = s_target_path = PATH_NONE;
     s_phase = PHASE_IDLE;
     s_ui_dirty = true;
-    state_set(SYS_STATUS_FAULT);
+    s_fault_active = true; /* state_derive() 据此返回 FAULT */
     drv_led_on(LED_ALM);
     drv_buzzer_short_sound(3);
     logger_out(LOG_ERROR, "FAULT: alarm=0x%lX", (unsigned long)app_alarm_get());
@@ -384,7 +395,7 @@ static void path_begin_stop(energy_path_t target)
      * 紧急路径(power_abort)仍立即全断. */
     s_cur_path = PATH_NONE;
     s_phase_since = HAL_GetTick();
-    state_set(SYS_STATUS_SWITCHING);
+    /* 过渡阶段 s_phase != IDLE, state_derive() 自动返回 SWITCHING */
     s_ui_dirty = true;
     if (drv_relay_is_on(RELAY_INV_IN))
     {
@@ -409,7 +420,7 @@ static void path_begin_stop(energy_path_t target)
  */
 static bool path_request(energy_path_t path, ac_input_state_t ac)
 {
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down)
+    if (s_fault_active || s_shutting_down)
     {
         return false;
     }
@@ -436,7 +447,6 @@ static bool path_request(energy_path_t path, ac_input_state_t ac)
         s_stop_chg_keep_bypass = true;
         s_phase = PHASE_STOP_CHARGE;
         s_phase_since = HAL_GetTick();
-        state_set(SYS_STATUS_SWITCHING);
         s_ui_dirty = true;
         return true;
     }
@@ -692,7 +702,10 @@ static void power_phase_process(ac_input_state_t ac, uint32_t elapsed)
 }
 
 /**
- * @brief 处理ONOFF长按：停止通路、短响提示并按现有延时断电。
+ * @brief 处理 ONOFF 长按：立即安全断电、熄灭电量 LED，保存/断电交由关机流程。
+ * @note  本函数在按键轮询中同步调用, 不得阻塞: 只做即时安全动作并进入
+ *        PHASE_RELEASE_DC; checkpoint 与 DEV_POWER_OFF 由 shutdown_process()
+ *        在主循环中执行 (唯一一次)。
  */
 static void handle_onoff_key(void)
 {
@@ -704,16 +717,17 @@ static void handle_onoff_key(void)
     s_shutdown_complete = false;
     s_output_requested = false;
     s_battery_trip_pending = false;
-    /* 关机: 立即全断, 不等顺序断电尾段 (MCU 即将断电) */
+    /* 立即断开全部继电器/光耦, 建立安全断电态 */
     drv_relay_all_off();
-    path_begin_stop(PATH_NONE);
-    mod_battery_led_mask(0); /* 关机: 熄灭 MAX17263 电量 LED (开机 init 恢复 SOC 模式) */
-    logger_out(LOG_INFO, "ONOFF: 3s hold, stopping routes before power off");
-    /* 保留当前关机顺序：给提示音留出时间，再撤销电源保持。 */
+    /* 交流侧已全断, 直接进入直流接触器释放阶段 (短延时, 本函数不阻塞) */
+    s_cur_path = s_target_path = PATH_NONE;
+    s_phase = PHASE_RELEASE_DC;
+    s_phase_since = HAL_GetTick();
+    s_ui_dirty = true;
+    /* 熄灭 MAX17263 电量 LED (开机 init 恢复 SOC 模式) */
+    mod_battery_led_mask(0);
     drv_buzzer_short_sound(1);
-    osDelay(300);
-    DEV_POWER_OFF();
-    osDelay(500);
+    logger_out(LOG_INFO, "ONOFF: 3s hold, routes off; shutdown_process will cut power");
 }
 
 /**
@@ -748,7 +762,7 @@ static energy_path_t resolve_target_path(ac_input_state_t ac, bool want_output, 
 static void handle_path_key(void)
 {
     ac_input_state_t ac = mod_metering_get_ac_input().state;
-    if (s_state == SYS_STATUS_FAULT)
+    if (s_fault_active)
     {
         /* 异常态按键不静默: 短响三声提示"被拒", 并即时刷新错误码显示
          * (无码时 TextError 显示空, 蜂鸣三声本身即为按键反馈) */
@@ -827,20 +841,14 @@ static void charge_strategy_update(ac_input_state_t ac)
         s_ac_stable = false;
         s_need_charge = false;
     }
-
-    energy_path_t target = resolve_target_path(ac, s_output_requested, s_need_charge);
-    if (target != s_target_path)
-    {
-        path_request(target, ac); /* 内部短路; 成功后主循环 display_publish 同步图标 */
-    }
+    /* 本函数只更新 s_need_charge; 通路合成(resolve)与请求(path_request)
+     * 统一由 work_status_process() 单点执行, 避免同 tick 重复切换。 */
 }
 
 /**
- * @brief 逆变稳态管理: 无负载(60s)或输出计量离线时自动停止输出。
- * @note  - 输出 HLW8110 离线(检测不到输出) -> 立即关断
- *        - vout_p_w < 1W 连续 60s -> 自动关断
- *        - 关断即清除 s_output_requested, 不会自动重启, 等下次 AC OUT 键触发
- *        - 仅由 work_status_process 稳态分派(逆变态)调用, 状态/通路门控外部保证
+ * @brief 逆变空载看门狗: 输出功率 <1W 连续 60s 自动停止输出。
+ * @note  输出计量通道失效由 output_channel_guard() 统一处理, 本函数只管空载;
+ *        关断即清除 s_output_requested, 不自动重启, 等下次 ACOUT 键触发。
  */
 static void inverter_idle_watchdog(void)
 {
@@ -848,17 +856,10 @@ static void inverter_idle_watchdog(void)
     uint32_t now = HAL_GetTick();
     ac_input_state_t ac = mod_metering_get_ac_input().state;
 
-    /* 输出计量离线: 检测不到输出 -> 立即关断输出并清除请求 */
-    if (!m || !m->online)
+    /* 无有效输出读数(通道失效)时不累计空载时间, 处置归 output_channel_guard */
+    if (!m || !m->out_ok)
     {
         s_inv_idle_since = 0;
-        logger_out(LOG_WARN, "INV meter offline: output off");
-        s_output_requested = false;
-        if (path_request(PATH_NONE, ac))
-        {
-            drv_buzzer_short_sound(2);
-            display_publish();
-        }
         return;
     }
     if (m->vout_p_w >= INV_IDLE_PWR_W)
@@ -874,6 +875,75 @@ static void inverter_idle_watchdog(void)
     {
         s_inv_idle_since = 0;
         logger_out(LOG_WARN, "INV idle %us no load: auto output off", INV_IDLE_STOP_MS / 1000u);
+        s_output_requested = false;
+        if (path_request(PATH_NONE, ac))
+        {
+            drv_buzzer_short_sound(2);
+            display_publish();
+        }
+    }
+}
+
+/**
+ * @brief 输出计量通道守卫: 输出 HLW8110 持续无数据时按当前通路语义处置。
+ * @param ac 输入计量模块提供的市电状态。
+ * @note  - PATH_INVERT 输出通道失效 -> 停逆变 (等下次按键, 不自动重启)
+ *        - PATH_CHARGE_BYPASS 输出通道失效 -> 降级纯充电 PATH_CHARGE
+ *        - 纯充电/空闲不受影响 (硬约束: 输出失效不能关闭充电)
+ */
+static void output_channel_guard(ac_input_state_t ac)
+{
+    METER_INFO_T *m = metering_get_info();
+    if (m != NULL && m->out_ok)
+    {
+        return; /* 输出通道有效 */
+    }
+    if (s_target_path == PATH_INVERT)
+    {
+        s_inv_idle_since = 0;
+        logger_out(LOG_WARN, "OUT meter no data: inverter off");
+        s_output_requested = false;
+        if (path_request(PATH_NONE, ac))
+        {
+            drv_buzzer_short_sound(2);
+            display_publish();
+        }
+    }
+    else if (s_target_path == PATH_CHARGE_BYPASS)
+    {
+        logger_out(LOG_WARN, "OUT meter no data: degrade to charge only");
+        if (path_request(PATH_CHARGE, ac))
+        {
+            display_publish();
+        }
+    }
+}
+
+#define OVERLOAD_STOP_MS 5000u /* 过载持续 5s 才停机 (防抖) */
+/**
+ * @brief 输出过载监督: 输出功率持续超过过载阈值 5s 则停止输出。
+ * @param ac 输入计量模块提供的市电状态。
+ * @note  过载期间界面 TextAlarm 实时显示 OVERLOAD; 功率回落即复位计时;
+ *        停机后清除请求, 等下次按键, 不自动重启。
+ */
+static void output_overload_check(ac_input_state_t ac)
+{
+    static uint32_t s_overload_since; /* 过载起算时间戳, 0=当前未过载 */
+    METER_INFO_T *m = metering_get_info();
+    bool overload = (m != NULL) && m->out_ok && (m->vout_p_w > BOARD_PWR_OVERLOAD_W);
+    if (!overload)
+    {
+        s_overload_since = 0;
+        return;
+    }
+    if (s_overload_since == 0)
+    {
+        s_overload_since = HAL_GetTick();
+    }
+    if ((uint32_t)(HAL_GetTick() - s_overload_since) >= OVERLOAD_STOP_MS)
+    {
+        s_overload_since = 0;
+        logger_out(LOG_WARN, "OUT overload %us: output off", OVERLOAD_STOP_MS / 1000u);
         s_output_requested = false;
         if (path_request(PATH_NONE, ac))
         {
@@ -969,9 +1039,10 @@ static bool thermal_protect(const TEMP_INFO_T *t, bool charge, bool invert)
         s_thermal_trip_pending = false;
         return false;
     }
-    /* 判定当前超限方向 (优先级: 电池 > 充电 > 逆变) */
+    /* 判定当前超限方向 (优先级: 电池 > 充电 > 逆变);
+     * 三方向统一按 charge/invert 活跃标志判定, 不再用通路枚举 */
     uint32_t trip_bit = 0u;
-    if (s_target_path != PATH_NONE && t->bat_temp >= BOARD_PROT_BAT_TMP_FAULT_TH)
+    if ((charge || invert) && t->bat_temp >= BOARD_PROT_BAT_TMP_FAULT_TH)
     {
         trip_bit = SYS_ALARM_BAT_OTP;
     }
@@ -1054,7 +1125,7 @@ static bool battery_protect(bool charge, bool invert)
 *********************************************************************/
 static void full_charge_auto_stop(void)
 {
-    if (s_state == SYS_STATUS_FAULT || s_shutting_down || s_phase != PHASE_IDLE ||
+    if (s_fault_active || s_shutting_down || s_phase != PHASE_IDLE ||
         !path_charges(s_target_path))
     {
         return;
@@ -1105,7 +1176,7 @@ static void work_status_process(void)
         shutdown_process();      /* 关机态: 推进释放等待/数据保存/断电 */
         return;
     }
-    if (s_state == SYS_STATUS_FAULT)
+    if (s_fault_active)
     {
         return;                  /* 故障态: 保持全断, 等按键/复位 */
     }
@@ -1154,46 +1225,24 @@ static void work_status_process(void)
         return;
     }
 
-    /* 输出计量失效守卫: 输出 HLW8110 持续无数据 (通道失效) →
-     *   逆变/旁路输出无法安全计量 → 停止输出, 短响提示;
-     *   纯充电/空闲不受影响 (用户约束: 输出失效不能关闭充电) */
-    const METER_INFO_T *met = metering_get_info();
-    if (met != NULL && met->out_ok == 0u)
-    {
-        if (s_target_path == PATH_INVERT)
-        {
-            logger_out(LOG_WARN, "OUT metering lost: stop inverter");
-            s_output_requested = false;
-            if (path_request(PATH_NONE, ac))
-            {
-                drv_buzzer_short_sound(2);
-                display_publish();
-            }
-        }
-        else if (s_target_path == PATH_CHARGE_BYPASS)
-        {
-            /* 充电+旁路: 仅停旁路直通, 保留充电回路 */
-            logger_out(LOG_WARN, "OUT metering lost: bypass off, charge keep");
-            if (path_request(PATH_CHARGE, ac))
-            {
-                drv_buzzer_short_sound(2);
-                display_publish();
-            }
-        }
-    }
+    /* 输出通道守卫: 输出 HLW8110 持续无数据 → 停逆变/旁路降级纯充电 */
+    output_channel_guard(ac);
 
-    /* 稳态附加管理: 按工作态分派 (风扇已独立到主循环, 此处不再涉及) */
+    /* 输出过载监督: 功率 >1100W 持续 5s → 停输出 (非输出态不触发) */
+    output_overload_check(ac);
+
+    /* 稳态附加管理: 按目标通路分派 (风扇已独立到主循环) */
     switch (s_target_path)
     {
     case PATH_CHARGE:
     case PATH_CHARGE_BYPASS:
-        full_charge_auto_stop();  /* 充电/充电+旁路态: 充满自动停充 */
+        full_charge_auto_stop();  /* 充电/充电+旁路: 充满自动停充 */
         break;
     case PATH_INVERT:
-        inverter_idle_watchdog(); /* 逆变态: 无负载 60s / 计量离线自动停 */
+        inverter_idle_watchdog(); /* 逆变: 空载 60s 自动停 (通道失效归 guard) */
         break;
     default:
-        break;                    /* 空闲态: 无附加管理 */
+        break;                    /* 空闲/纯旁路: 无附加管理 */
     }
     drv_led_off(LED_ALM);
 }
