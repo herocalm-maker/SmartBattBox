@@ -103,7 +103,10 @@ typedef enum
  * 背景: 现场实测放电到整包 20.67V(2.58V/单体) 才靠 SOC=0 关断, LFP 已深度过放。 */
 #define INV_CELL_SOFT_MV             2800u   /* 软停门限: 单体 <= 2.80V 关输出 */
 #define INV_CELL_HARD_MV             2700u   /* 硬停门限: 单体 <= 2.70V 关断并锁存 */
-#define INV_CELL_RESUME_MV           2850u   /* 解除门限: 单体 >= 2.85V 才允许重新开启 */
+#define INV_CELL_RESUME_MV           3000u   /* 解除门限: 单体 >= 3.00V 才允许重新开启
+                                              * (2.85V 太低: 静置 3.03V 带载 25A 会跌到 2.79V,
+                                              *  2.85V 起机瞬间就击穿软停甚至硬停) */
+#define INV_UV_RESTART_HOLD_MS       120000u /* 欠压/低电量停输出后 2 分钟内拒绝重启 */
 #define UI_CODE_HOLD_MS              10000u  /* 瞬时提示码 (ERRxx) 显示时长, ms */
 #define OVERLOAD_BEEP_PERIOD_MS      2000u   /* 过载声光报警周期 */
 #define OVERLOAD_BEEP_HALF_MS        1000u   /* 报警相位时长: 1.0s 亮/响 + 1.0s 静默 */
@@ -190,7 +193,9 @@ static main_task_state_t s_state = {
 static volatile bool s_overload_alarm;
 /* 过载蜂鸣相位沿检测: 只在报警相位上升沿触发一次短响 */
 static bool s_overload_phase_prev;
-
+/* 低电量告警状态: 软停/硬停/SOC<1% 停输出时置位, 充电或逆变重启后清除。
+ * 显示任务经 app_ui_lowbat() 只读消费 (跨任务, 故加 volatile)。 */
+static volatile bool s_ui_lowbat;
 /* 充满停充后的重启封锁状态: full_charge_auto_stop 置位, charge_strategy_update
  * 消费; 220V 拔出再插入立即解除, 或 10min 超时自动解除。
  * 定义在 s_state 之后、所有使用点之前, 供 charge_restart_block_left_s() 只读查询。 */
@@ -246,6 +251,17 @@ uint8_t app_ui_code_get(void)
 bool app_ui_overload_alarm(void)
 {
     return s_overload_alarm;
+}
+
+/**
+ * @brief 低电量告警 (屏 TextAlarm 显示 "LOWBAT")。
+ * @return true: 电池欠压/低电量导致逆变停输出, 且尚未恢复。
+ * @note  置位: 软停 / 硬停 / SOC<1% 停输出时;
+ *        清除: 重新开始充电, 或逆变重新进入 RUNNING。
+ */
+bool app_ui_lowbat(void)
+{
+    return s_ui_lowbat;
 }
 
 /**
@@ -940,8 +956,23 @@ static bool invert_soc_allow(BATT_INFO_T *bat)
 
 static void invert_state_process(ac_input_state_t ac)
 {
-    static bool s_uv_hard;   /* 单体欠压硬停锁存: 需回升到 INV_CELL_RESUME_MV 才解除 */
+    static bool s_uv_hard;        /* 单体欠压硬停锁存: 需回升到 INV_CELL_RESUME_MV 才解除 */
+    static uint32_t s_uv_stop_ms; /* 最近一次欠压/低电量停输出时刻 (0=无), 用于重启冷却 */
     uint32_t elapsed = HAL_GetTick() - s_state.invert_phase_since;
+
+    /* 冷却期结束或已开始充电: 清除冷却与低电量告警 */
+    if (s_uv_stop_ms != 0u)
+    {
+        if ((uint32_t)(HAL_GetTick() - s_uv_stop_ms) >= INV_UV_RESTART_HOLD_MS)
+        {
+            s_uv_stop_ms = 0u;
+        }
+    }
+    if (s_state.flags.need_charge)
+    {
+        s_uv_stop_ms = 0u;      /* 开始充电: 允许充电完成后立即使用 */
+        s_ui_lowbat  = false;
+    }
 
     /* 硬停锁存解除: 单体回升到解除门限以上 */
     if (s_uv_hard)
@@ -964,6 +995,19 @@ static void invert_state_process(ac_input_state_t ac)
              * 电量必须 >= INV_MIN_SOC_PCT(1%) 才允许启动 (220V 掉电自动转逆变时同样受此限制)。 */
             if (s_state.mode == WORK_MODE_INVERT && s_state.flags.ac_out_requested)
             {
+                /* 欠压/低电量停输出后的冷却: 期间拒绝重启, 避免"刚回弹就开、一开就跌穿" */
+                if ((s_uv_stop_ms != 0u) &&
+                    ((uint32_t)(HAL_GetTick() - s_uv_stop_ms) < INV_UV_RESTART_HOLD_MS))
+                {
+                    uint32_t left = (INV_UV_RESTART_HOLD_MS -
+                                     (uint32_t)(HAL_GetTick() - s_uv_stop_ms)) / 1000u + 1u;
+                    s_state.flags.ac_out_requested = false;
+                    logger_out(LOG_WARN, "INV start rejected: UV cooldown %lus left, beep 3",
+                               (unsigned long)left);
+                    drv_buzzer_short_sound(3);
+                    display_publish();
+                    break;
+                }
                 BATT_INFO_T bat = {0};
                 if (!invert_soc_allow(&bat))
                 {
@@ -1024,6 +1068,7 @@ static void invert_state_process(ac_input_state_t ac)
                 {
                     s_state.invert_state = INVERT_STATE_RUNNING;
                     s_state.flags.ui_dirty = true;
+                    s_ui_lowbat = false;   /* 逆变已正常输出: 清除低电量告警 */
                     mod_metering_reset_out_no_data();
                     logger_out(LOG_INFO, "INV: PD0 ON, running");
                 }
@@ -1049,6 +1094,8 @@ static void invert_state_process(ac_input_state_t ac)
             if (snap_ok && (cell != 0u) && (cell <= INV_CELL_HARD_MV))
             {
                 s_uv_hard = true;
+                s_uv_stop_ms = HAL_GetTick();
+                s_ui_lowbat = true;
                 logger_out(LOG_ERROR, "INV: cell=%lumV <= %lumV (hard UV), output off & latched, beep 3",
                            (unsigned long)cell, (unsigned long)INV_CELL_HARD_MV);
                 s_state.flags.ac_out_requested = false;
@@ -1057,6 +1104,8 @@ static void invert_state_process(ac_input_state_t ac)
             }
             else if (snap_ok && (cell != 0u) && (cell <= INV_CELL_SOFT_MV))
             {
+                s_uv_stop_ms = HAL_GetTick();
+                s_ui_lowbat = true;
                 logger_out(LOG_WARN, "INV: cell=%lumV <= %lumV (soft UV), output off, beep 3",
                            (unsigned long)cell, (unsigned long)INV_CELL_SOFT_MV);
                 s_state.flags.ac_out_requested = false;
@@ -1065,6 +1114,8 @@ static void invert_state_process(ac_input_state_t ac)
             }
             else if (snap_ok && (unsigned)bat.soc < INV_MIN_SOC_PCT)
             {
+                s_uv_stop_ms = HAL_GetTick();
+                s_ui_lowbat = true;
                 logger_out(LOG_WARN, "INV: soc=%u%% < %u%%, auto output off (low battery), beep 3",
                            (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT);
                 s_state.flags.ac_out_requested = false;
