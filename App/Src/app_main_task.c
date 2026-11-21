@@ -193,9 +193,12 @@ static main_task_state_t s_state = {
 static volatile bool s_overload_alarm;
 /* 过载蜂鸣相位沿检测: 只在报警相位上升沿触发一次短响 */
 static bool s_overload_phase_prev;
-/* 低电量告警状态: 软停/硬停/SOC<1% 停输出时置位, 充电或逆变重启后清除。
+/* 低电量告警状态: 软停/硬停/SOC<1% 停输出或按键被拒时置位, 充电或逆变重启后清除。
  * 显示任务经 app_ui_lowbat() 只读消费 (跨任务, 故加 volatile)。 */
 static volatile bool s_ui_lowbat;
+/* 逆变欠压状态: 硬停锁存 + 最近一次欠压停输出时刻 (供冷却判定/按键提示复用) */
+static bool     s_uv_hard;
+static uint32_t s_uv_stop_ms;
 /* 充满停充后的重启封锁状态: full_charge_auto_stop 置位, charge_strategy_update
  * 消费; 220V 拔出再插入立即解除, 或 10min 超时自动解除。
  * 定义在 s_state 之后、所有使用点之前, 供 charge_restart_block_left_s() 只读查询。 */
@@ -954,10 +957,26 @@ static bool invert_soc_allow(BATT_INFO_T *bat)
     return true;
 }
 
+/**
+ * @brief 欠压停输出后的重启冷却剩余秒数。
+ * @return 0: 无冷却; >0: 剩余秒数 (向上取整)。
+ */
+static uint32_t inv_uv_cooldown_left_s(void)
+{
+    if (s_uv_stop_ms == 0u)
+    {
+        return 0u;
+    }
+    uint32_t el = (uint32_t)(HAL_GetTick() - s_uv_stop_ms);
+    if (el >= INV_UV_RESTART_HOLD_MS)
+    {
+        return 0u;
+    }
+    return (INV_UV_RESTART_HOLD_MS - el) / 1000u + 1u;
+}
+
 static void invert_state_process(ac_input_state_t ac)
 {
-    static bool s_uv_hard;        /* 单体欠压硬停锁存: 需回升到 INV_CELL_RESUME_MV 才解除 */
-    static uint32_t s_uv_stop_ms; /* 最近一次欠压/低电量停输出时刻 (0=无), 用于重启冷却 */
     uint32_t elapsed = HAL_GetTick() - s_state.invert_phase_since;
 
     /* 冷却期结束或已开始充电: 清除冷却与低电量告警 */
@@ -972,6 +991,19 @@ static void invert_state_process(ac_input_state_t ac)
     {
         s_uv_stop_ms = 0u;      /* 开始充电: 允许充电完成后立即使用 */
         s_ui_lowbat  = false;
+    }
+    else if (s_state.mode == WORK_MODE_INVERT && s_state.invert_state == INVERT_STATE_IDLE)
+    {
+        /* 无市电且空闲: 电池本来就低(上电/软停后)也要在屏幕上提示 -> LOWBAT 闪烁 */
+        BATT_INFO_T lb = {0};
+        if (battery_get_snapshot(&lb))
+        {
+            uint32_t lc = inv_cell_mv(&lb);
+            if (((lc != 0u) && (lc < INV_CELL_SOFT_MV)) || ((unsigned)lb.soc < 3u))
+            {
+                s_ui_lowbat = true;
+            }
+        }
     }
 
     /* 硬停锁存解除: 单体回升到解除门限以上 */
@@ -996,14 +1028,13 @@ static void invert_state_process(ac_input_state_t ac)
             if (s_state.mode == WORK_MODE_INVERT && s_state.flags.ac_out_requested)
             {
                 /* 欠压/低电量停输出后的冷却: 期间拒绝重启, 避免"刚回弹就开、一开就跌穿" */
-                if ((s_uv_stop_ms != 0u) &&
-                    ((uint32_t)(HAL_GetTick() - s_uv_stop_ms) < INV_UV_RESTART_HOLD_MS))
+                uint32_t cd_s = inv_uv_cooldown_left_s();
+                if (cd_s != 0u)
                 {
-                    uint32_t left = (INV_UV_RESTART_HOLD_MS -
-                                     (uint32_t)(HAL_GetTick() - s_uv_stop_ms)) / 1000u + 1u;
                     s_state.flags.ac_out_requested = false;
+                    s_ui_lowbat = true;
                     logger_out(LOG_WARN, "INV start rejected: UV cooldown %lus left, beep 3",
-                               (unsigned long)left);
+                               (unsigned long)cd_s);
                     drv_buzzer_short_sound(3);
                     display_publish();
                     break;
@@ -1016,7 +1047,8 @@ static void invert_state_process(ac_input_state_t ac)
                     logger_out(LOG_WARN, "INV start rejected: soc=%u%% (<%u%%) cell=%lumV (<%lumV), beep 3",
                                (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT,
                                (unsigned long)cell, (unsigned long)INV_CELL_RESUME_MV);
-                    /* 低电量/欠压不刷 ERR 码 (按需求), 只用 3 声蜂鸣提示 */
+                    /* 低电量/欠压不刷 ERR 码 (按需求), 只用 3 声蜂鸣 + 屏 LOWBAT */
+                    s_ui_lowbat = true;
                     drv_buzzer_short_sound(3);
                     display_publish();
                     break;
@@ -1223,9 +1255,21 @@ static void handle_path_key(void)
         BATT_INFO_T bat = {0};
         if (!invert_soc_allow(&bat))
         {
-            logger_out(LOG_WARN, "ACOUT rejected: soc=%u%% < %u%% (inverter needs >=%u%%)",
-                       (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT, (unsigned)INV_MIN_SOC_PCT);
-            /* 低电量不刷 ERR 码 (按需求), 只用 3 声蜂鸣提示 */
+            uint32_t cell = inv_cell_mv(&bat);
+            uint32_t cd_s = inv_uv_cooldown_left_s();
+            if (cd_s != 0u)
+            {
+                logger_out(LOG_WARN, "ACOUT rejected: UV cooldown %lus left (cell=%lumV), beep 3",
+                           (unsigned long)cd_s, (unsigned long)cell);
+            }
+            else
+            {
+                logger_out(LOG_WARN, "ACOUT rejected: soc=%u%% (<%u%%) cell=%lumV (<%lumV), beep 3",
+                           (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT,
+                           (unsigned long)cell, (unsigned long)INV_CELL_RESUME_MV);
+            }
+            /* 低电量不刷 ERR 码 (按需求), 只用 3 声蜂鸣 + 屏 LOWBAT 提示原因 */
+            s_ui_lowbat = true;
             drv_buzzer_short_sound(3);
             display_publish();
             return;
