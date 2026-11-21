@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAX17263 模型 / 自学习 / 参数 图文说明</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161d2c; --panel2:#1d2637; --line:#2c3850;
+    --txt:#dfe6f3; --dim:#93a0b8; --acc:#4da3ff; --acc2:#38d39f; --warn:#ffb454; --bad:#ff6b6b;
+    --mono:"Cascadia Code","Consolas",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.75 "Segoe UI","Microsoft YaHei",sans-serif}
+  a{color:var(--acc);text-decoration:none}
+  .wrap{display:grid;grid-template-columns:250px 1fr;max-width:1400px;margin:0 auto}
+  nav{position:sticky;top:0;height:100vh;overflow:auto;padding:22px 14px;border-right:1px solid var(--line);background:var(--panel)}
+  nav h1{font-size:15px;margin:0 0 14px;color:var(--acc)}
+  nav a{display:block;padding:5px 8px;border-radius:6px;color:var(--dim);font-size:13.5px}
+  nav a:hover{background:var(--panel2);color:var(--txt)}
+  nav .g{margin:12px 0 4px;font-size:11.5px;letter-spacing:.12em;color:#5f6d86}
+  main{padding:30px 38px 90px;min-width:0}
+  h2{font-size:24px;margin:46px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:18px;margin:28px 0 10px;color:#bcd2ff}
+  h4{font-size:15px;margin:18px 0 8px;color:var(--acc2)}
+  p{color:#cfd9ea}
+  .lead{font-size:16px;color:#c7d4e8;background:linear-gradient(90deg,rgba(77,163,255,.12),transparent);border-left:3px solid var(--acc);padding:10px 14px;border-radius:0 8px 8px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:980px){.wrap{grid-template-columns:1fr}nav{display:none}.grid2,.grid3{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#aecbff;font-weight:600}
+  td code,p code,li code{font-family:var(--mono);font-size:12.5px;background:#0b101a;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:#ffd79a}
+  pre{background:#0b101a;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:12.5px;color:#cfe0ff}
+  .k{color:var(--acc)} .g2{color:var(--acc2)} .w{color:var(--warn)} .b{color:var(--bad)}
+  .tag{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim);margin-right:6px}
+  .tag.ok{color:var(--acc2);border-color:rgba(56,211,159,.45)}
+  .tag.no{color:var(--bad);border-color:rgba(255,107,107,.45)}
+  .tag.warn{color:var(--warn);border-color:rgba(255,180,84,.45)}
+  svg{max-width:100%;height:auto;display:block;margin:10px auto}
+  .diagram{background:#0b101a;border:1px solid var(--line);border-radius:12px;padding:8px}
+  .cap{text-align:center;color:var(--dim);font-size:12.5px;margin:4px 0 0}
+  /* 动画 */
+  @keyframes dash{to{stroke-dashoffset:-26}}
+  .flow{stroke-dasharray:7 6;animation:dash 1.1s linear infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .blink{animation:pulse 1.8s ease-in-out infinite}
+  @keyframes charge{0%{width:4%}100%{width:100%}}
+  .barfill{animation:charge 6s linear infinite}
+  @keyframes glow{0%,100%{filter:drop-shadow(0 0 0 rgba(77,163,255,0))}50%{filter:drop-shadow(0 0 7px rgba(77,163,255,.9))}}
+  .glow{animation:glow 2.4s ease-in-out infinite}
+  .note{border-left:3px solid var(--warn);background:rgba(255,180,84,.08);padding:9px 13px;border-radius:0 8px 8px 0;color:#ffe2b8;margin:12px 0}
+  .good{border-left:3px solid var(--acc2);background:rgba(56,211,159,.08);padding:9px 13px;border-radius:0 8px 8px 0;color:#c8f5e3;margin:12px 0}
+  ul{padding-left:22px} li{margin:4px 0}
+  .small{font-size:12.5px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h1>MAX17263 图文说明</h1>
+  <div class="g">总览</div>
+  <a href="#intro">0. 先看懂这张图</a>
+  <a href="#lfp">0.1 为什么 LFP 难</a>
+  <div class="g">路线 A：电池模型</div>
+  <a href="#model-what">1.1 模型是什么</a>
+  <a href="#model-how">1.2 一般怎么做</a>
+  <a href="#model-data">1.3 采集哪些数据</a>
+  <a href="#model-format">1.4 结果格式（INI）</a>
+  <a href="#model-reg">1.5 对应哪些寄存器</a>
+  <a href="#model-load">1.6 怎么写入/每次上电</a>
+  <a href="#model-code">1.7 当前代码支持度</a>
+  <div class="g">路线 B：EZ 自学习</div>
+  <a href="#learn-what">2.1 芯片在学什么</a>
+  <a href="#learn-enable">2.2 要打开哪个寄存器</a>
+  <a href="#learn-round">2.3 一轮充放电的数据流</a>
+  <a href="#learn-restore">2.4 读写哪些寄存器</a>
+  <a href="#learn-code">2.5 当前代码实现</a>
+  <a href="#learn-risk">2.6 不自学习的影响</a>
+  <div class="g">当前参数</div>
+  <a href="#param-struct">3.1 参数结构</a>
+  <a href="#param-cfg">3.2 battery_cfg</a>
+  <a href="#param-policy">3.3 battery_policy</a>
+  <a href="#param-app">3.4 应用层判满/逆变</a>
+  <a href="#param-change">3.5 改动联动</a>
+  <div class="g">状态与数据流</div>
+  <a href="#fsm-charge">4. 充电/判满状态图</a>
+  <a href="#fsm-inv">5. 放电/逆变状态图</a>
+  <a href="#dfd">6. 数据流总图</a>
+</nav>
+
+<main>
+<h2 id="intro" style="margin-top:0">0. 先看懂这张图</h2>
+<p class="lead">MAX17263 只做三件事：<b>量电压</b>（CELLX 分压）、<b>量电流</b>（1mΩ 电阻）、<b>算 SOC</b>（库仑计 + 电压法混合）。它<b>不在电池里</b>，在板子上，所以它看到的是"电池端子节点"的电压——这一点后面会解释很多现象。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 900 330" role="img" aria-label="系统框图">
+  <defs>
+    <marker id="ar" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#4da3ff"/>
+    </marker>
+    <marker id="ar2" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#38d39f"/>
+    </marker>
+  </defs>
+  <!-- 电池 -->
+  <rect x="24" y="120" width="140" height="86" rx="10" fill="#1d2637" stroke="#38d39f"/>
+  <text x="94" y="150" text-anchor="middle" fill="#38d39f" font-size="14">8S LFP 20Ah</text>
+  <text x="94" y="172" text-anchor="middle" fill="#93a0b8" font-size="12">29.2V 满 / 20V 空</text>
+  <text x="94" y="192" text-anchor="middle" fill="#93a0b8" font-size="12">R114 = 1mΩ</text>
+  <!-- 分压 -->
+  <rect x="210" y="60" width="120" height="72" rx="10" fill="#161d2c" stroke="#4da3ff"/>
+  <text x="270" y="86" text-anchor="middle" fill="#4da3ff" font-size="13">CELLX 分压</text>
+  <text x="270" y="106" text-anchor="middle" fill="#93a0b8" font-size="12">1:20（8S）</text>
+  <text x="270" y="122" text-anchor="middle" fill="#93a0b8" font-size="11">Vpack/20 = 0.4×Vcell</text>
+  <!-- 电流采样 -->
+  <rect x="210" y="170" width="120" height="72" rx="10" fill="#161d2c" stroke="#4da3ff"/>
+  <text x="270" y="196" text-anchor="middle" fill="#4da3ff" font-size="13">电流采样</text>
+  <text x="270" y="216" text-anchor="middle" fill="#93a0b8" font-size="12">CSPL / CSN</text>
+  <text x="270" y="232" text-anchor="middle" fill="#93a0b8" font-size="11">1.5625mA/LSB</text>
+  <!-- 芯片 -->
+  <rect x="380" y="96" width="180" height="120" rx="12" fill="#1a2536" stroke="#4da3ff" stroke-width="2" class="glow"/>
+  <text x="470" y="124" text-anchor="middle" fill="#cfe0ff" font-size="15" font-weight="600">MAX17263</text>
+  <text x="470" y="146" text-anchor="middle" fill="#93a0b8" font-size="12">ModelGauge m5</text>
+  <text x="470" y="166" text-anchor="middle" fill="#93a0b8" font-size="12">EZ 模型 / OCV 表</text>
+  <text x="470" y="186" text-anchor="middle" fill="#93a0b8" font-size="12">库仑计 + 混合算法</text>
+  <text x="470" y="206" text-anchor="middle" fill="#93a0b8" font-size="12">12 LED 驱动</text>
+  <!-- MCU -->
+  <rect x="620" y="96" width="120" height="120" rx="12" fill="#1d2637" stroke="#38d39f"/>
+  <text x="680" y="128" text-anchor="middle" fill="#38d39f" font-size="14">STM32F407</text>
+  <text x="680" y="150" text-anchor="middle" fill="#93a0b8" font-size="12">SensorTask</text>
+  <text x="680" y="168" text-anchor="middle" fill="#93a0b8" font-size="12">AppMainTask</text>
+  <text x="680" y="186" text-anchor="middle" fill="#93a0b8" font-size="12">W25Q128</text>
+  <!-- 显示/BLE -->
+  <rect x="782" y="96" width="96" height="56" rx="10" fill="#161d2c" stroke="#ffb454"/>
+  <text x="830" y="120" text-anchor="middle" fill="#ffb454" font-size="12.5">串口屏</text>
+  <text x="830" y="140" text-anchor="middle" fill="#93a0b8" font-size="11">SOC / ERR</text>
+  <rect x="782" y="162" width="96" height="54" rx="10" fill="#161d2c" stroke="#ffb454"/>
+  <text x="830" y="186" text-anchor="middle" fill="#ffb454" font-size="12.5">蓝牙</text>
+  <text x="830" y="204" text-anchor="middle" fill="#93a0b8" font-size="11">JSON</text>
+  <!-- 连线 -->
+  <path d="M164 140 L206 100" stroke="#4da3ff" fill="none" class="flow" marker-end="url(#ar)"/>
+  <path d="M164 180 L206 206" stroke="#4da3ff" fill="none" class="flow" marker-end="url(#ar)"/>
+  <path d="M330 96 L376 130" stroke="#4da3ff" fill="none" class="flow" marker-end="url(#ar)"/>
+  <path d="M330 206 L376 180" stroke="#4da3ff" fill="none" class="flow" marker-end="url(#ar)"/>
+  <path d="M560 156 L616 156" stroke="#38d39f" fill="none" class="flow" marker-end="url(#ar2)"/>
+  <text x="588" y="148" text-anchor="middle" fill="#38d39f" font-size="11">I2C 0x36</text>
+  <path d="M740 130 L778 124" stroke="#ffb454" fill="none" class="flow"/>
+  <path d="M740 186 L778 190" stroke="#ffb454" fill="none" class="flow"/>
+  <!-- 注释 -->
+  <text x="30" y="250" fill="#93a0b8" font-size="11.5">⚠ 电量计在板上：它测的是"电池端子节点"，插着 220V 且电池断开时会测到充电器电压</text>
+  <rect x="30" y="262" width="840" height="46" rx="8" fill="#161d2c" stroke="#2c3850"/>
+  <text x="44" y="282" fill="#cfd9ea" font-size="12">三条数据流：① 电压/电流 → 芯片内部算法 → SOC/容量；② I2C → MCU → 屏/BLE/保护；③ MCU → W25Q128 学习参数日志（掉电恢复用）</text>
+  <text x="44" y="300" fill="#93a0b8" font-size="12">芯片学习值只在 RAM，掉电即丢 → MCU 必须存 Flash，上电再写回（见第 2 章）</text>
+</svg>
+<p class="cap">图 0-1 系统框图：测量链路 + 通信链路 + 持久化链路</p>
+</div>
+
+<h3 id="lfp">0.1 为什么磷酸铁锂特别难</h3>
+<div class="grid2">
+<div class="diagram">
+<svg viewBox="0 0 430 260" role="img" aria-label="OCV 曲线">
+  <rect x="50" y="16" width="360" height="200" fill="#0b101a" stroke="#2c3850"/>
+  <text x="230" y="246" text-anchor="middle" fill="#93a0b8" font-size="12">SOC (%)</text>
+  <text x="18" y="120" text-anchor="middle" fill="#93a0b8" font-size="12" transform="rotate(-90 18 120)">OCV (V/节)</text>
+  <!-- 网格 -->
+  <g stroke="#1b2434">
+    <line x1="50" y1="116" x2="410" y2="116"/><line x1="140" y1="16" x2="140" y2="216"/>
+    <line x1="230" y1="16" x2="230" y2="216"/><line x1="320" y1="16" x2="320" y2="216"/>
+  </g>
+  <text x="50" y="230" fill="#5f6d86" font-size="10">0</text>
+  <text x="225" y="230" fill="#5f6d86" font-size="10">50</text>
+  <text x="400" y="230" fill="#5f6d86" font-size="10">100</text>
+  <text x="34" y="176" fill="#5f6d86" font-size="10">3.0</text>
+  <text x="34" y="126" fill="#5f6d86" font-size="10">3.2</text>
+  <text x="34" y="76" fill="#5f6d86" font-size="10">3.4</text>
+  <!-- LFP 曲线 -->
+  <path d="M50,180 C90,160 110,128 150,120 L260,112 C310,110 350,96 400,60"
+        fill="none" stroke="#38d39f" stroke-width="2.6"/>
+  <!-- 平台区 -->
+  <rect x="120" y="96" width="180" height="40" fill="rgba(255,180,84,.14)" stroke="#ffb454" stroke-dasharray="5 4"/>
+  <text x="210" y="90" text-anchor="middle" fill="#ffb454" font-size="11">平台区 3.20~3.35V（SOC 20~90%）</text>
+  <text x="210" y="120" text-anchor="middle" fill="#ffb454" font-size="10.5">±10mV ≈ ±10% SOC</text>
+  <!-- 通用曲线 -->
+  <path d="M50,196 C120,180 160,130 220,110 C300,86 340,60 400,40"
+        fill="none" stroke="#4da3ff" stroke-width="1.6" stroke-dasharray="4 4"/>
+  <text x="330" y="150" fill="#4da3ff" font-size="10.5">通用锂电曲线（EZ）</text>
+</svg>
+<p class="cap">图 0-2 LFP 平台区：电压几乎不变，SOC 却大幅变化 → 必须靠模型/库仑计</p>
+</div>
+<div class="card">
+<h4>一句话解释</h4>
+<p>普通锂电（三元）从 3.0V 到 4.2V，电压和电量基本成正比；<b>LFP 在 20%~90% 区间电压只在 3.20~3.35V 之间变化</b>，测量误差 10mV 就能让 SOC 偏 10%。</p>
+<p>所以 MAX17263 用两条腿走路：短时间靠<b>库仑计</b>（积分电流），长时间靠<b>电压法 VFG</b>（查 OCV-SOC 曲线）。而曲线准不准，就取决于有没有"电池模型"。</p>
+<div class="note">芯片提供"平台区避让窗口"（ScOcvLim，默认 3275~3350mV）：在这个区间内不做 OCV 修正，避免被平台区的微小电压波动带偏。</div>
+</div>
+</div>
+
+<!-- ===================== 路线 A ===================== -->
+<h2 id="model-what">1. 电池模型（Characterization）</h2>
+
+<h3>1.1 模型到底是什么</h3>
+<div class="card">
+<p>模型就是一组<b>特征化后得到的表格数据</b>，告诉芯片"你这颗电芯在任意温度、任意负载下，电压对应多少电量、内阻多大"。它替换掉 EZ 模式内置的通用曲线。</p>
+<div class="grid3">
+  <div class="card" style="margin:0"><h4>OCV 表</h4><p class="small">16 字（80h~8Fh）<br>+ 16 字 X 表（90h~9Fh）<br>电压↔SOC 的对应关系</p></div>
+  <div class="card" style="margin:0"><h4>内阻参数</h4><p class="small">RComp0(38h)、TempCo(39h)、RCompSeg(AFh)<br>负载下由电压推算 OCV</p></div>
+  <div class="card" style="margin:0"><h4>QR 表</h4><p class="small">QRTable00/10/20/30<br>(12h/22h/32h/42h)<br>不同倍率/温度下的容量修正</p></div>
+</div>
+<div class="note"><b>关键：模型在芯片里是 RAM。</b>掉电（POR）就没了，每次上电必须重新写进去。</div>
+</div>
+
+<h3 id="model-how">1.2 一般怎么做（流程图）</h3>
+<div class="diagram">
+<svg viewBox="0 0 900 300" role="img" aria-label="特征化流程">
+  <defs><marker id="arw" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#38d39f"/></marker></defs>
+  <g font-size="12.5" text-anchor="middle">
+    <rect x="20" y="40" width="130" height="66" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="85" y="66" fill="#38d39f">① 取样电芯</text><text x="85" y="86" fill="#93a0b8" font-size="11">同批次 ≥5 只</text>
+
+    <rect x="195" y="24" width="150" height="98" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="270" y="48" fill="#38d39f">② 提交 ADI</text>
+    <text x="270" y="68" fill="#93a0b8" font-size="11">电芯 + 规格书</text>
+    <text x="270" y="86" fill="#93a0b8" font-size="11">应用条件（10A/29.2V）</text>
+    <text x="270" y="104" fill="#93a0b8" font-size="11">温度范围 -20~60℃</text>
+
+    <rect x="390" y="24" width="150" height="98" rx="10" fill="#1d2637" stroke="#ffb454"/>
+    <text x="465" y="48" fill="#ffb454">③ ADI 测试矩阵</text>
+    <text x="465" y="68" fill="#93a0b8" font-size="11">多温度 × 多倍率</text>
+    <text x="465" y="86" fill="#93a0b8" font-size="11">充/放/静置 OCV</text>
+    <text x="465" y="104" fill="#93a0b8" font-size="11">拟合模型 → INI</text>
+
+    <rect x="585" y="24" width="130" height="98" rx="10" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="650" y="48" fill="#4da3ff">④ INI → C</text>
+    <text x="650" y="68" fill="#93a0b8" font-size="11">32 字 + 参数</text>
+    <text x="650" y="86" fill="#93a0b8" font-size="11">填 max17263_model_t</text>
+    <text x="650" y="104" fill="#93a0b8" font-size="11">.model = &amp;xxx</text>
+
+    <rect x="750" y="24" width="130" height="98" rx="10" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="815" y="48" fill="#4da3ff">⑤ 烧录 + 断电</text>
+    <text x="815" y="68" fill="#93a0b8" font-size="11">bump PROFILE_ID</text>
+    <text x="815" y="86" fill="#93a0b8" font-size="11">给芯片断一次电</text>
+    <text x="815" y="104" fill="#93a0b8" font-size="11">POR 时装模型</text>
+  </g>
+  <g stroke="#38d39f" fill="none" class="flow" marker-end="url(#arw)">
+    <path d="M150 76 L190 76"/><path d="M345 76 L386 76"/><path d="M540 76 L581 76"/><path d="M715 76 L746 76"/>
+  </g>
+  <!-- 下排：验证 -->
+  <g font-size="12" text-anchor="middle">
+    <rect x="300" y="180" width="300" height="80" rx="10" fill="#161d2c" stroke="#2c3850"/>
+    <text x="450" y="204" fill="#cfe0ff">⑥ 验收（3 轮满充满放）</text>
+    <text x="450" y="224" fill="#93a0b8" font-size="11">对照外部库仑计实测 Ah，比较 repcap/fullcap</text>
+    <text x="450" y="242" fill="#93a0b8" font-size="11">平台区 SOC 误差、末端 SOC 误差、SOH 收敛</text>
+  </g>
+  <path d="M815 122 L815 160 L600 160 L600 176" stroke="#4da3ff" fill="none" class="flow" marker-end="url(#arw)"/>
+</svg>
+<p class="cap">图 1-1 从取样电芯到量产固件的完整路径</p>
+</div>
+
+<h3 id="model-data">1.3 ADI 特征化会采集哪些数据</h3>
+<table>
+<tr><th style="width:150px">类别</th><th>内容</th><th style="width:230px">用途</th></tr>
+<tr><td>电芯规格</td><td>标称/最小/最大容量、充电截止电压、放电截止电压、标准/最大充放电倍率、温度范围</td><td>确定测试边界与 OCV 表范围</td></tr>
+<tr><td>充放电曲线</td><td>多个温度（典型 0/25/45℃）× 多个倍率（0.2C/0.5C/1C）的恒流充、恒流放曲线</td><td>拟合容量-倍率-温度关系（QR 表）</td></tr>
+<tr><td>静置 OCV</td><td>每放 5%~10% SOC 后静置（≥2h）测端电压，得到 OCV-SOC 曲线</td><td>生成 OCV 表（80h~9Fh）</td></tr>
+<tr><td>脉冲内阻</td><td>阶跃电流下的 ΔV/ΔI，多 SOC、多温度</td><td>RComp0 / TempCo / RCompSeg</td></tr>
+<tr><td>应用信息</td><td>CC/CV（10A/29.2V）、终止电流、典型负载、环境温度</td><td>确定 IChgTerm / VEmpty / 运行点</td></tr>
+</table>
+<div class="note">这些测试 ADI 会用自己的设备做。<b>我们要提供的是电芯样品 + 规格书 + 实际使用条件</b>，不要自己算 OCV 表（通用表比伪表更安全）。</div>
+
+<h3 id="model-format">1.4 做完后得到的格式：INI</h3>
+<p>ADI 返回的是一个文本 INI（本质是"寄存器地址 = 16 位十六进制值"），示例：</p>
+<pre><span class="small">; 仅示意字段，数值不是真实模型</span>
+[Model]
+OCVTable0 = 0x9C00      ; 80h
+OCVTable1 = 0x9B80      ; 81h
+...
+OCVTable15 = 0x6B00     ; 8Fh
+XTable0 = 0x1234        ; 90h
+...
+XTable15 = 0x5678       ; 9Fh
+RCompSeg = 0x0100       ; AFh
+RComp0   = 0x1A00       ; 38h
+TempCo   = 0x2B00       ; 39h
+QRTable00 = 0x1E00      ; 12h
+QRTable10 = 0x0F00      ; 22h
+QRTable20 = 0x0C00      ; 32h
+QRTable30 = 0x0100      ; 42h
+[Param]
+DesignCap = 4000        ; 18h（20Ah @1mΩ）
+IChgTerm  = 128         ; 1Eh（200mA）
+VEmpty    = 0x7D4B      ; 3Ah
+FullSOCThr= 0x5F05      ; 13h（特征化后 95%）
+[Optional]
+LearnCfg = 0x4486       ; 28h（按 INI）
+MiscCfg  = 0x3870       ; 2Bh
+</pre>
+
+<h3 id="model-reg">1.5 对应哪些寄存器 + 装载顺序</h3>
+<div class="diagram">
+<svg viewBox="0 0 900 340" role="img" aria-label="模型寄存器映射">
+  <g font-size="12">
+    <rect x="20" y="20" width="360" height="290" rx="10" fill="#161d2c" stroke="#2c3850"/>
+    <text x="36" y="44" fill="#4da3ff" font-size="13">芯片寄存器</text>
+    <text x="36" y="72" fill="#cfd9ea">0x80~0x8F  OCVTable0~15</text>
+    <text x="36" y="96" fill="#cfd9ea">0x90~0x9F  XTable0~15</text>
+    <text x="36" y="120" fill="#cfd9ea">0xAF       RCompSeg</text>
+    <text x="36" y="144" fill="#cfd9ea">0x38       RComp0</text>
+    <text x="36" y="168" fill="#cfd9ea">0x39       TempCo</text>
+    <text x="36" y="192" fill="#cfd9ea">0x12/22/32/42  QRTable00/10/20/30</text>
+    <text x="36" y="216" fill="#cfd9ea">0x13       FullSOCThr</text>
+    <text x="36" y="240" fill="#cfd9ea">0x18/1E/3A DesignCap/IChgTerm/VEmpty</text>
+    <text x="36" y="264" fill="#cfd9ea">0x28/2A/2C/2D/2B/B9/D1  可选参数</text>
+    <text x="36" y="292" fill="#93a0b8" font-size="11">0x62/0x63 = 模型区解锁（写完必须上锁）</text>
+
+    <rect x="500" y="20" width="380" height="290" rx="10" fill="#161d2c" stroke="#2c3850"/>
+    <text x="516" y="44" fill="#38d39f" font-size="13">C 结构体 max17263_model_t</text>
+    <text x="516" y="72" fill="#cfe0ff" font-size="11.5">table[0..15]    ← 0x80~0x8F</text>
+    <text x="516" y="94" fill="#cfe0ff" font-size="11.5">table[16..31]   ← 0x90~0x9F</text>
+    <text x="516" y="116" fill="#cfe0ff" font-size="11.5">rcompseg        ← 0xAF</text>
+    <text x="516" y="138" fill="#cfe0ff" font-size="11.5">rcomp0          ← 0x38</text>
+    <text x="516" y="160" fill="#cfe0ff" font-size="11.5">tempco          ← 0x39</text>
+    <text x="516" y="182" fill="#cfe0ff" font-size="11.5">qr[0..3]        ← 0x12/22/32/42</text>
+    <text x="516" y="204" fill="#cfe0ff" font-size="11.5">optional[]      ← 白名单寄存器</text>
+    <text x="516" y="226" fill="#93a0b8" font-size="10.5">(0x28/2A/1D/BB/13/2C/2D/B9/2B/D1)</text>
+    <text x="516" y="256" fill="#93a0b8" font-size="11">battery_config.h: .model = &amp;battery_model_lfp8s</text>
+    <text x="516" y="278" fill="#93a0b8" font-size="11">模型内容参与 profile_hash → 改模型必须 bump PROFILE_ID</text>
+    <text x="516" y="300" fill="#93a0b8" font-size="10.5">0x62/0x63 = 模型区解锁（写完必须上锁）</text>
+  </g>
+  <path d="M385 160 L495 160" stroke="#4da3ff" fill="none" class="flow" stroke-width="2"/>
+</svg>
+<p class="cap">图 1-2 INI → C 结构体 → 芯片寄存器的映射</p>
+</div>
+
+<h3 id="model-load">1.6 每次上电都要写吗？—— 是的</h3>
+<div class="grid2">
+<div class="diagram">
+<svg viewBox="0 0 430 260" role="img" aria-label="RAM 与 Flash">
+  <rect x="30" y="30" width="160" height="120" rx="10" fill="#1d2637" stroke="#ff6b6b"/>
+  <text x="110" y="54" text-anchor="middle" fill="#ff6b6b" font-size="13">MAX17263 RAM</text>
+  <text x="110" y="76" text-anchor="middle" fill="#93a0b8" font-size="11">模型表 / 学习值</text>
+  <text x="110" y="96" text-anchor="middle" fill="#93a0b8" font-size="11">SOC / 容量</text>
+  <text x="110" y="122" text-anchor="middle" fill="#ff6b6b" font-size="12" class="blink">掉电 = 全丢</text>
+  <rect x="240" y="30" width="160" height="120" rx="10" fill="#1d2637" stroke="#38d39f"/>
+  <text x="320" y="54" text-anchor="middle" fill="#38d39f" font-size="13">W25Q128 Flash</text>
+  <text x="320" y="76" text-anchor="middle" fill="#93a0b8" font-size="11">5 项学习值</text>
+  <text x="320" y="96" text-anchor="middle" fill="#93a0b8" font-size="11">CRC + hash + 电池ID</text>
+  <text x="320" y="122" text-anchor="middle" fill="#38d39f" font-size="12">掉电保留</text>
+  <!-- 箭头 -->
+  <path d="M200 90 L235 90" stroke="#4da3ff" fill="none" class="flow" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="217" y="82" text-anchor="middle" fill="#4da3ff" font-size="10">存</text>
+  <path d="M235 150 L200 150" stroke="#38d39f" fill="none" class="flow" stroke-width="2" marker-end="url(#ar2)"/>
+  <text x="217" y="168" text-anchor="middle" fill="#38d39f" font-size="10">POR 恢复</text>
+  <text x="215" y="210" text-anchor="middle" fill="#93a0b8" font-size="11">模型表不存 Flash（在固件里），学习值存 Flash</text>
+</svg>
+<p class="cap">图 1-3 芯片 RAM 与 MCU 侧 Flash 的分工</p>
+</div>
+<div class="card">
+<h4>上电装载时序（本项目已实现）</h4>
+<ol class="small">
+<li>读 Status，确认 <code>POR=1</code>（芯片真掉电）；等 <code>FStat.DNR=0</code>（约 710ms）</li>
+<li>读 HibCfg 备份 → 写 <code>0x60=0x0090</code>（软唤醒）→ <code>HibCfg=0</code> → <code>0x60=0</code></li>
+<li>写 DesignCap / IChgTerm / VEmpty / FullSOCThr</li>
+<li>写 <code>ModelCfg = 0x0060 | 0x8000</code>（LFP + Refresh）→ 轮询 Refresh 清零</li>
+<li><b>若有模型</b>：解锁 62h/63h → 写 32 字 → RCompSeg → 上锁 → 容量序列 → QR → optional → <code>Config2|=0x0020</code>(LdMdl) 轮询</li>
+<li>恢复 HibCfg → 清 POR</li>
+</ol>
+<div class="good">本项目的 <code>drv_max17263_load_full_model()</code> 已完整实现第 5 步的 ADI Option 3 流程，只差 INI 数据。</div>
+</div>
+</div>
+
+<h3 id="model-code">1.7 当前代码支持度</h3>
+<table>
+<tr><th style="width:220px">项目</th><th>状态</th><th>说明</th></tr>
+<tr><td>模型装载代码</td><td><span class="tag ok">已实现</span></td><td>解锁/写 32 字逐个回读/上锁校验/LdMdl 轮询/恢复 HibCfg，一应俱全</td></tr>
+<tr><td>模型数据</td><td><span class="tag no">没有</span></td><td><code>.model = NULL</code>，走 EZ；启动日志打印 <code>EZ uncharacterized</code></td></tr>
+<tr><td>INI→C 转换工具</td><td><span class="tag no">没有</span></td><td>需要手写或补一个脚本</td></tr>
+<tr><td>配置联动</td><td><span class="tag warn">需人工</span></td><td>特征化后 FullSOCThr 建议 80%→95%，并 bump PROFILE_ID + 给芯片断电</td></tr>
+</table>
+
+<!-- ===================== 路线 B ===================== -->
+<h2 id="learn-what">2. 没有模型：EZ 自学习机制</h2>
+
+<h3>2.1 芯片在学什么（学习环路）</h3>
+<div class="diagram">
+<svg viewBox="0 0 900 320" role="img" aria-label="学习环路">
+  <defs><marker id="a3" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#4da3ff"/></marker>
+        <marker id="a4" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#38d39f"/></marker></defs>
+  <g font-size="12.5" text-anchor="middle">
+    <rect x="30" y="60" width="150" height="64" rx="10" fill="#161d2c" stroke="#4da3ff"/>
+    <text x="105" y="86" fill="#4da3ff">电压法 VFG</text><text x="105" y="106" fill="#93a0b8" font-size="11">OCV 表 → SOC</text>
+
+    <rect x="30" y="180" width="150" height="64" rx="10" fill="#161d2c" stroke="#4da3ff"/>
+    <text x="105" y="206" fill="#4da3ff">库仑计</text><text x="105" y="226" fill="#93a0b8" font-size="11">∫I dt → ΔAh</text>
+
+    <rect x="260" y="112" width="150" height="80" rx="12" fill="#1a2536" stroke="#4da3ff" stroke-width="2"/>
+    <text x="335" y="140" fill="#cfe0ff">混合算法</text><text x="335" y="160" fill="#93a0b8" font-size="11">按 LearnCfg.LS 加权</text><text x="335" y="178" fill="#93a0b8" font-size="11">→ RepSOC / RepCap</text>
+
+    <rect x="490" y="40" width="180" height="70" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="580" y="64" fill="#38d39f">满电学习（EOC / FQ）</text>
+    <text x="580" y="84" fill="#93a0b8" font-size="11">FullCapRep ← RepCap</text>
+    <text x="580" y="100" fill="#93a0b8" font-size="11">FullCapNom 同步</text>
+
+    <rect x="490" y="130" width="180" height="70" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="580" y="154" fill="#38d39f">静置学习（RelDt）</text>
+    <text x="580" y="174" fill="#93a0b8" font-size="11">RComp0 / TempCo</text>
+    <text x="580" y="190" fill="#93a0b8" font-size="11">修正负载下的 OCV</text>
+
+    <rect x="490" y="220" width="180" height="70" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="580" y="244" fill="#38d39f">学习阶段推进</text>
+    <text x="580" y="264" fill="#93a0b8" font-size="11">LearnCfg.LS 0→7</text>
+    <text x="580" y="280" fill="#93a0b8" font-size="11">约 2 个完整循环</text>
+  </g>
+  <g stroke="#4da3ff" fill="none" class="flow" marker-end="url(#a3)">
+    <path d="M180 100 L255 130"/><path d="M180 210 L255 175"/>
+    <path d="M410 145 L485 80"/><path d="M410 160 L485 165"/><path d="M410 178 L485 245"/>
+  </g>
+  <g stroke="#38d39f" fill="none" stroke-dasharray="4 4" marker-end="url(#a4)" opacity=".8">
+    <path d="M580 110 L580 126"/><path d="M670 165 L720 165 L720 300 L105 300 L105 250"/>
+  </g>
+  <text x="740" y="160" fill="#38d39f" font-size="10.5">学到的参数反过来修正 VFG</text>
+</svg>
+<p class="cap">图 2-1 三件事：满电学容量、静置学内阻、循环推进学习阶段</p>
+</div>
+
+<h3 id="learn-enable">2.2 要"打开"哪个寄存器？</h3>
+<div class="good">
+<b>不需要额外的"学习使能开关"。</b>MAX17263 上电完成 EZ 配置（<code>ModelCfg.Refresh</code>）后，学习就是自动进行的——只要电池真的经历了"充满 / 放空 / 静置"。
+</div>
+<p>但下面这些寄存器<b>间接决定学习能不能发生、学得准不准</b>：</p>
+<table>
+<tr><th style="width:150px">寄存器</th><th style="width:120px">本项目值</th><th>对学习的影响</th></tr>
+<tr><td>ModelCfg (DBh)</td><td>0x0060 + Refresh</td><td>装载 EZ 模型（LFP 用 ModelID=6）；不 Refresh 就没有正确的算法初始状态</td></tr>
+<tr><td>FullSOCThr (13h)</td><td>0x5005（80%）</td><td><b>满电学习的门槛</b>：VFSOC 必须超过它，FQ 才可能置位；设太高（如 95%）EZ 可能永远学不到</td></tr>
+<tr><td>IChgTerm (1Eh)</td><td>0x0080（200mA）</td><td>配合 FullSOCThr 形成 FQ 电流窗 <code>[0.125, 1.25]×200mA = 25~250mA</code></td></tr>
+<tr><td>VEmpty (3Ah)</td><td>0x7D4B（2.5/3.0V）</td><td><b>空电学习的门槛</b>：电压跌破 VE 触发 EDet，芯片把 SOC 校准到 0</td></tr>
+<tr><td>LearnCfg (28h)</td><td>默认 0x4486（不写）</td><td>LS 学习阶段：默认自动 0→7；写入 7 可跳过渐进（不建议）</td></tr>
+<tr><td>MiscCfg (2Bh)</td><td>默认 0x3870（不写）</td><td>FUS 满容量回调斜率（防止 RepSOC 跳变）、MR 混合速率</td></tr>
+<tr><td>Config2 (BBh)</td><td>清 dSOC 中断</td><td>不影响学习，只影响 ALRT 引脚</td></tr>
+</table>
+
+<h3 id="learn-round">2.3 一轮充放电里发生了什么</h3>
+<div class="diagram">
+<svg viewBox="0 0 900 380" role="img" aria-label="一轮充放电数据流">
+  <g font-size="11.5">
+    <!-- 泳道 -->
+    <rect x="20" y="20" width="860" height="50" rx="8" fill="#161d2c" stroke="#2c3850"/>
+    <text x="34" y="50" fill="#4da3ff" font-size="12.5">电池</text>
+    <rect x="20" y="80" width="860" height="50" rx="8" fill="#161d2c" stroke="#2c3850"/>
+    <text x="34" y="110" fill="#4da3ff" font-size="12.5">MAX17263</text>
+    <rect x="20" y="140" width="860" height="50" rx="8" fill="#161d2c" stroke="#2c3850"/>
+    <text x="34" y="170" fill="#4da3ff" font-size="12.5">MCU</text>
+    <rect x="20" y="200" width="860" height="50" rx="8" fill="#161d2c" stroke="#2c3850"/>
+    <text x="34" y="230" fill="#4da3ff" font-size="12.5">Flash</text>
+
+    <!-- 阶段 -->
+    <text x="150" y="340" fill="#93a0b8">充电(CC/CV)</text>
+    <text x="400" y="340" fill="#93a0b8">静置 2h</text>
+    <text x="600" y="340" fill="#93a0b8">放电</text>
+    <text x="760" y="340" fill="#93a0b8">再充电</text>
+    <g stroke="#2c3850" stroke-dasharray="3 4">
+      <line x1="300" y1="20" x2="300" y2="330"/><line x1="520" y1="20" x2="520" y2="330"/><line x1="700" y1="20" x2="700" y2="330"/>
+    </g>
+
+    <!-- 事件 -->
+    <circle cx="240" cy="45" r="5" fill="#38d39f" class="blink"/>
+    <text x="252" y="49" fill="#38d39f">电流进入 25~250mA 窗口</text>
+
+    <circle cx="250" cy="105" r="6" fill="#ffb454" class="blink"/>
+    <text x="264" y="109" fill="#ffb454">FQ=1（FStat bit7）→ FullCapRep←RepCap</text>
+
+    <circle cx="400" cy="45" r="5" fill="#4da3ff"/>
+    <circle cx="400" cy="105" r="6" fill="#4da3ff" class="blink"/>
+    <text x="414" y="109" fill="#4da3ff">RelDt=1 → RComp0/TempCo 更新</text>
+
+    <circle cx="600" cy="45" r="5" fill="#ff6b6b"/>
+    <circle cx="600" cy="105" r="6" fill="#ff6b6b" class="blink"/>
+    <text x="614" y="109" fill="#ff6b6b">VCell&lt;2.5V → EDet，SOC 校准 0%</text>
+
+    <!-- MCU 侧 -->
+    <rect x="120" y="150" width="240" height="30" rx="6" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="240" y="170" text-anchor="middle" fill="#cfe0ff">每 3s 采样、每 10s 打日志</text>
+    <rect x="400" y="150" width="200" height="30" rx="6" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="500" y="170" text-anchor="middle" fill="#cfe0ff">读 5 项学习值</text>
+    <rect x="640" y="150" width="200" height="30" rx="6" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="740" y="170" text-anchor="middle" fill="#cfe0ff">Cycles 跨 0.64 → 保存</text>
+
+    <!-- Flash -->
+    <rect x="380" y="210" width="300" height="30" rx="6" fill="#1d2637" stroke="#38d39f"/>
+    <text x="530" y="230" text-anchor="middle" fill="#cfe0ff">双扇区 CRC 记录（64B，含 hash/电池ID）</text>
+    <path d="M600 182 L600 206" stroke="#38d39f" class="flow" fill="none"/>
+    <path d="M740 182 L740 206 L684 206" stroke="#38d39f" class="flow" fill="none"/>
+  </g>
+</svg>
+<p class="cap">图 2-2 一轮充放电：芯片自己学，MCU 只做"存"</p>
+</div>
+
+<h3 id="learn-restore">2.4 到底读什么、写什么？（回答你的疑问）</h3>
+<div class="card">
+<p><b>不是"读一个寄存器、上电写回一个"。</b>实际是：</p>
+<div class="grid2">
+<div class="card" style="margin:0">
+<h4>掉电前：MCU 读 5 个</h4>
+<table style="margin:4px 0">
+<tr><th>寄存器</th><th>名字</th></tr>
+<tr><td>0x38</td><td>RComp0</td></tr>
+<tr><td>0x39</td><td>TempCo</td></tr>
+<tr><td>0x10</td><td>FullCapRep</td></tr>
+<tr><td>0x23</td><td>FullCapNom</td></tr>
+<tr><td>0x17</td><td>Cycles</td></tr>
+</table>
+</div>
+<div class="card" style="margin:0">
+<h4>上电（POR）后：MCU 写 9 个</h4>
+<table style="margin:4px 0">
+<tr><th>寄存器</th><th>值</th></tr>
+<tr><td>0x10 FullCapRep</td><td>存的值</td></tr>
+<tr><td>0x45 dQAcc</td><td>FullCapNom/2</td></tr>
+<tr><td>0x46 dPAcc</td><td>0x0C80</td></tr>
+<tr><td>0x23 FullCapNom</td><td>存的值</td></tr>
+<tr><td>0x0F MixCap</td><td>VFSOC/25600×FullCapNom</td></tr>
+<tr><td>0x1F AvCap</td><td>同上</td></tr>
+<tr><td>0x38 RComp0</td><td>存的值</td></tr>
+<tr><td>0x39 TempCo</td><td>存的值</td></tr>
+<tr><td>0x17 Cycles</td><td>存的值</td></tr>
+</table>
+</div>
+</div>
+<p class="small">原因：芯片内部不是"一个数值"，而是容量、累计电量、内阻补偿等一组互相耦合的量；恢复时必须按 ADI 规定的顺序重算 MixCap/AvCap，否则 SOC 会跳。RepSOC(0x06)/RepCap(0x05) 是只读输出，<b>不能直接写</b>。</p>
+</div>
+
+<h3 id="learn-code">2.5 当前代码实现</h3>
+<table>
+<tr><th style="width:190px">环节</th><th>实现</th><th style="width:150px">位置</th></tr>
+<tr><td>读学习值</td><td>读前读后查 POR、查 FStat.DNR、容量合理性筛查 <code>[DesignCap/10, ×2]</code></td><td><code>drv_max17263_get_learned()</code></td></tr>
+<tr><td>保存</td><td>W25Q128 扇区 9/10，64B/记录：magic/版本/seq/hash/电池ID/5 项/CRC/COMMIT</td><td><code>mod_battery.c</code></td></tr>
+<tr><td>保存时机</td><td>距上次 ≥60s 且 Cycles 跨 64 个原始计数（0.64 循环）；关机时强制保存</td><td><code>mod_battery.c:329</code></td></tr>
+<tr><td>恢复时机</td><td><b>仅 POR</b>；MCU 复位（暖启动）只校验配置，不覆盖芯片当前值</td><td><code>drv_max17263_initialize()</code></td></tr>
+<tr><td>换电池</td><td><code>BATTERY_PACK_ID</code> 变化 → 旧记录失配 → 当新电池</td><td><code>battery_config.h</code></td></tr>
+<tr><td>新电池初值</td><td>无记录且 RepSOC&lt;5% → Quick Start（OCV 重估）</td><td><code>mod_battery.c:87-103</code></td></tr>
+</table>
+
+<h3 id="learn-risk">2.6 不做自学习（或学习失败）的影响</h3>
+<div class="grid2">
+<div class="card">
+<h4>会怎样</h4>
+<ul class="small">
+<li><code>FullCapRep</code> 永远等于 DesignCap → <b>SOH 恒 100%</b>，容量衰减看不出来</li>
+<li>满电点不修正 → SOC 到 100% 的时间点越来越偏</li>
+<li>空电点不修正 → 放电末端 SOC 跳变（比如 8% 直接跳到 0%）</li>
+<li>长期 SOC 漂移，只能靠断电重启的 OCV 重估纠正</li>
+</ul>
+</div>
+<div class="card">
+<h4>为什么可能学不到（本硬件）</h4>
+<ul class="small">
+<li>末端净电流 = 充电器电流 − 板载自耗(114mA)，可能掉出 25~250mA 窗口 → <b>FQ 不置位</b></li>
+<li>VFSOC 到不了 FullSOCThr（EZ+LFP 平台）→ FQ 不置位</li>
+<li>不常放电到 2.5V → 空电学习也很少触发</li>
+</ul>
+<div class="good small">已用"SOC=100 强停 + 电压/电流 1h 物理兜底"保证充停正确，但注意：<b>FQ 不触发时容量仍然不会学习</b>。</div>
+</div>
+</div>
+
+<!-- ===================== 参数 ===================== -->
+<h2 id="param-struct">3. 当前配置参数详解</h2>
+
+<h3>3.1 参数结构（四层）</h3>
+<div class="diagram">
+<svg viewBox="0 0 900 300" role="img" aria-label="参数结构">
+  <g font-size="12" text-anchor="middle">
+    <rect x="20" y="30" width="200" height="80" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="120" y="56" fill="#38d39f">battery_cfg（13）</text>
+    <text x="120" y="76" fill="#93a0b8" font-size="11">容量/电阻/电压/电流</text>
+    <text x="120" y="94" fill="#93a0b8" font-size="11">→ 写芯片核心寄存器</text>
+
+    <rect x="245" y="30" width="200" height="80" rx="10" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="345" y="56" fill="#4da3ff">battery_policy（14）</text>
+    <text x="345" y="76" fill="#93a0b8" font-size="11">阈值/周期/LED</text>
+    <text x="345" y="94" fill="#93a0b8" font-size="11">→ 告警寄存器 + 软件判定</text>
+
+    <rect x="470" y="30" width="200" height="80" rx="10" fill="#1d2637" stroke="#ffb454"/>
+    <text x="570" y="56" fill="#ffb454">应用层（13）</text>
+    <text x="570" y="76" fill="#93a0b8" font-size="11">充电/判满/逆变</text>
+    <text x="570" y="94" fill="#93a0b8" font-size="11">→ 不写芯片，只控继电器</text>
+
+    <rect x="695" y="30" width="185" height="80" rx="10" fill="#1d2637" stroke="#ff6b6b"/>
+    <text x="787" y="56" fill="#ff6b6b">驱动固定量</text>
+    <text x="787" y="76" fill="#93a0b8" font-size="11">LSB/位定义/掩码</text>
+    <text x="787" y="94" fill="#93a0b8" font-size="11">→ 编译期常量</text>
+
+    <rect x="245" y="170" width="425" height="80" rx="10" fill="#161d2c" stroke="#2c3850"/>
+    <text x="457" y="196" fill="#cfe0ff">Flash 学习记录（hash = profile_id + 全部 cfg + 模型内容）</text>
+    <text x="457" y="216" fill="#93a0b8" font-size="11">cfg 改动 → hash 变 → 旧学习值自动作废</text>
+    <text x="457" y="234" fill="#93a0b8" font-size="11">battery_id 单独匹配 → 换电池必须改</text>
+
+    <path d="M120 110 L120 150 L245 190" stroke="#38d39f" class="flow" fill="none"/>
+    <path d="M345 110 L345 165" stroke="#4da3ff" class="flow" fill="none"/>
+    <path d="M570 110 L570 165" stroke="#ffb454" class="flow" fill="none"/>
+  </g>
+</svg>
+<p class="cap">图 3-1 参数分四层：写芯片的核心配置 / 策略阈值 / 应用逻辑 / 驱动常量</p>
+</div>
+
+<h3 id="param-cfg">3.2 battery_cfg（13 项，写芯片或参与换算）</h3>
+<table>
+<tr><th style="width:130px">参数</th><th style="width:90px">当前值</th><th style="width:170px">写到哪/作用</th><th>影响（错了会怎样）</th></tr>
+<tr><td><code>profile_id</code></td><td>7</td><td>不写芯片；Flash hash</td><td>改配置不 bump → 旧学习值被误用</td></tr>
+<tr><td><code>battery_id</code></td><td>1</td><td>不写芯片；记录匹配</td><td>换电池不改 → 沿用旧电池容量/内阻</td></tr>
+<tr><td><code>rsense_uohm</code></td><td>1000</td><td>换算（1.5625mA、5mAh/LSB）</td><td>错 → 电流/容量整体比例错</td></tr>
+<tr><td><code>design_mah</code></td><td>20000</td><td>DesignCap 18h = 0x0FA0</td><td>错 → SOC 分母错、学习边界错</td></tr>
+<tr><td><code>ichgterm_ma</code></td><td>200</td><td>IChgTerm 1Eh = 0x0080</td><td>错 → FQ 窗口偏，容量学不到或提前学</td></tr>
+<tr><td><code>empty_mv</code></td><td>2500</td><td>VEmpty VE（10mV/LSB）</td><td>高于系统截止 → 永远学不到空电</td></tr>
+<tr><td><code>recovery_mv</code></td><td>3000</td><td>VEmpty VR（40mV/LSB）</td><td>回滞点，影响空电反复触发</td></tr>
+<tr><td><code>full_soc_thr_pct</code></td><td>80</td><td>FullSOCThr 13h = 0x5005</td><td>EZ 用 80；设 95 可能永不 FQ</td></tr>
+<tr><td><code>series_cells</code></td><td>8</td><td>只用于 <code>pack_mv = cell×8</code></td><td>错 → 整包电压显示错</td></tr>
+<tr><td><code>external_ntc</code></td><td>false</td><td>Config 掩码（Ten=1, TSel=0）</td><td>true 但没接 NTC → 温度乱</td></tr>
+<tr><td><code>ntc_100k</code></td><td>false</td><td>ModelCfg.R100</td><td>仅外部 NTC 时有效</td></tr>
+<tr><td><code>allow_uncharacterized</code></td><td>true</td><td>bind() 放行 EZ</td><td>量产应 false + 上模型</td></tr>
+<tr><td><code>model</code></td><td>NULL</td><td>有值 → Option 3 装载</td><td>NULL = 通用曲线</td></tr>
+<tr><td><code>poll_timeout_ms</code></td><td>3000</td><td>DNR/Refresh/LdMdl 超时</td><td>太短 → 初始化偶发失败</td></tr>
+</table>
+<p class="small">换算出的实际写入值：DesignCap 0x0FA0、IChgTerm 0x0080、VEmpty 0x7D4B、FullSOCThr 0x5005、ModelCfg 0x0060|Refresh、ScOcvLim 0x479E（3275~3350mV keep-out）、Config 0x0200。</p>
+
+<h3 id="param-policy">3.3 battery_policy（14 项）</h3>
+<table>
+<tr><th style="width:140px">参数</th><th style="width:90px">值</th><th style="width:180px">写哪个寄存器/用途</th><th>影响</th></tr>
+<tr><td><code>min_cell_mv</code></td><td>2500</td><td>VALRT 下限 + 欠压故障</td><td>与 VEmpty 相同 → 0% 与跳闸同点</td></tr>
+<tr><td><code>max_cell_mv</code></td><td>3720</td><td>VALRT 上限 + 过压故障</td><td>CV 29.2V(3650mV) 只余 70mV</td></tr>
+<tr><td><code>min_temp_c</code></td><td>-20</td><td>TALRT 下限 + 低温故障</td><td>LFP 充电下限应 0℃</td></tr>
+<tr><td><code>max_temp_c</code></td><td>60</td><td>TALRT 上限 + 高温故障</td><td>die 温度≠电芯</td></tr>
+<tr><td><code>low_soc</code></td><td>10</td><td>SALRT + 低电提示</td><td>只提示不动作</td></tr>
+<tr><td><code>max_discharge_ma</code></td><td>42000</td><td>IALRT -105 + 过流</td><td>1mΩ 满量程 ±51.2A，占 82%</td></tr>
+<tr><td><code>max_charge_ma</code></td><td>10000</td><td>IALRT +25 + 过流</td><td>充电器实际须 ≤10A</td></tr>
+<tr><td><code>period_ms</code></td><td>3000</td><td>采样周期</td><td>—</td></tr>
+<tr><td><code>stale_ms</code></td><td>3500</td><td>数据有效期</td><td>超过 → 数据无效</td></tr>
+<tr><td><code>led_*</code></td><td>12/3/8/2000</td><td>LEDCfg1/2</td><td>亮度/灯数/VLED</td></tr>
+<tr><td><code>led_while_charging</code></td><td>false</td><td>LEDCfg1.LChg</td><td>充电是否强制点亮</td></tr>
+</table>
+<p class="small">对应告警寄存器：VALRT=0xBA7D、TALRT=0x3CEC、SALRT=0xFF0A、IALRT=0x1997。</p>
+
+<h3 id="param-app">3.4 应用层参数（13 项，不写芯片）</h3>
+<table>
+<tr><th style="width:190px">常量</th><th style="width:90px">值</th><th>作用</th></tr>
+<tr><td><code>CHARGE_FULL_SOC</code></td><td>100</td><td>A 路径判满门槛（SOC=100%）</td></tr>
+<tr><td><code>CHARGE_RESTART_SOC</code></td><td>100</td><td>冷却后 &lt; 该值才重新充电</td></tr>
+<tr><td><code>CHARGE_FULL_FORCE_MS</code></td><td>5min</td><td>SOC=100 但 FQ/TTF 不满足时强停</td></tr>
+<tr><td><code>CHARGE_FULL_V_MV</code></td><td>3600</td><td>物理兜底单体电压（28.8V/8）</td></tr>
+<tr><td><code>CHARGE_FULL_I_MA</code></td><td>500</td><td>物理兜底电流（绝对值窗）</td></tr>
+<tr><td><code>CHARGE_FULL_V_I_HOLD_MS</code></td><td>1h</td><td>物理兜底保持时间</td></tr>
+<tr><td><code>CHARGE_FULL_PHYS_REARM_SOC</code></td><td>95</td><td>物理满后允许再充的 SOC</td></tr>
+<tr><td><code>CHARGE_RESTART_BLOCK_MS</code></td><td>10min</td><td>停充冷却</td></tr>
+<tr><td><code>AC_STABLE_MS</code></td><td>2s</td><td>220V 稳定确认</td></tr>
+<tr><td><code>INV_MIN_SOC_PCT</code></td><td>1</td><td>逆变门限：≥1% 允许，0% 禁止</td></tr>
+<tr><td><code>UI_CODE_HOLD_MS</code></td><td>10s</td><td>ERR17 显示时长</td></tr>
+<tr><td><code>INV_IDLE_STOP_MS</code></td><td>60s</td><td>逆变空载自动停</td></tr>
+<tr><td><code>OVERLOAD_STOP_MS</code></td><td>5s</td><td>过载停机防抖</td></tr>
+</table>
+
+<h3 id="param-change">3.5 改动联动（很重要）</h3>
+<div class="diagram">
+<svg viewBox="0 0 900 220" role="img" aria-label="改动联动">
+  <g font-size="12" text-anchor="middle">
+    <rect x="20" y="60" width="190" height="80" rx="10" fill="#1d2637" stroke="#ffb454"/>
+    <text x="115" y="86" fill="#ffb454">改 cfg/模型/采样电阻</text>
+    <text x="115" y="106" fill="#93a0b8" font-size="11">design/ichgterm/vempty/</text>
+    <text x="115" y="122" fill="#93a0b8" font-size="11">rsense/串数/模型内容</text>
+
+    <rect x="255" y="60" width="180" height="80" rx="10" fill="#1d2637" stroke="#ff6b6b"/>
+    <text x="345" y="90" fill="#ff6b6b">bump PROFILE_ID</text>
+    <text x="345" y="110" fill="#93a0b8" font-size="11">旧学习记录自动作废</text>
+
+    <rect x="480" y="60" width="170" height="80" rx="10" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="565" y="90" fill="#4da3ff">给芯片断电一次</text>
+    <text x="565" y="110" fill="#93a0b8" font-size="11">MCU 复位不够</text>
+
+    <rect x="695" y="60" width="180" height="80" rx="10" fill="#1d2637" stroke="#38d39f"/>
+    <text x="785" y="90" fill="#38d39f">POR 重新配置</text>
+    <text x="785" y="110" fill="#93a0b8" font-size="11">否则 M_EPROFILE</text>
+  </g>
+  <g stroke="#4da3ff" class="flow" fill="none" marker-end="url(#ar)">
+    <path d="M210 100 L250 100"/><path d="M435 100 L475 100"/><path d="M650 100 L690 100"/>
+  </g>
+  <text x="450" y="180" text-anchor="middle" fill="#93a0b8" font-size="12">换电池组 → 只改 battery_id（不必 bump PROFILE_ID）</text>
+</svg>
+<p class="cap">图 3-2 改参数的四步联动</p>
+</div>
+
+<!-- ===================== 状态图 ===================== -->
+<h2 id="fsm-charge">4. 充电 / 判满状态图</h2>
+<div class="diagram">
+<svg viewBox="0 0 900 420" role="img" aria-label="充电状态机">
+  <defs><marker id="a5" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#4da3ff"/></marker></defs>
+  <g font-size="12" text-anchor="middle">
+    <rect x="30" y="160" width="130" height="60" rx="30" fill="#1d2637" stroke="#93a0b8"/>
+    <text x="95" y="188" fill="#cfe0ff">IDLE</text><text x="95" y="206" fill="#93a0b8" font-size="10.5">继电器全断</text>
+
+    <rect x="230" y="160" width="130" height="60" rx="30" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="295" y="188" fill="#cfe0ff">STARTING</text><text x="295" y="206" fill="#93a0b8" font-size="10.5">CHG_IN 1.5s</text>
+
+    <rect x="430" y="160" width="130" height="60" rx="30" fill="#1a2536" stroke="#38d39f" stroke-width="2"/>
+    <text x="495" y="188" fill="#cfe0ff">RUNNING</text><text x="495" y="206" fill="#93a0b8" font-size="10.5">CHG_OUT 闭合</text>
+
+    <rect x="630" y="160" width="130" height="60" rx="30" fill="#1d2637" stroke="#ffb454"/>
+    <text x="695" y="188" fill="#cfe0ff">STOPPING</text><text x="695" y="206" fill="#93a0b8" font-size="10.5">1.5s 后断 CHG_IN</text>
+
+    <!-- 判满分支 -->
+    <rect x="380" y="20" width="230" height="66" rx="10" fill="#161d2c" stroke="#38d39f"/>
+    <text x="495" y="44" fill="#38d39f">A1: SOC=100 且 FQ=1 且 TTF=0</text>
+    <text x="495" y="64" fill="#93a0b8" font-size="11">→ 立即停充</text>
+
+    <rect x="380" y="98" width="230" height="46" rx="10" fill="#161d2c" stroke="#ffb454"/>
+    <text x="495" y="118" fill="#ffb454">A2: SOC=100 但 FQ/TTF 不满足</text>
+    <text x="495" y="136" fill="#93a0b8" font-size="11">→ 5min 后强停</text>
+
+    <rect x="650" y="20" width="230" height="66" rx="10" fill="#161d2c" stroke="#4da3ff"/>
+    <text x="765" y="44" fill="#4da3ff">B: SOC&lt;100 时</text>
+    <text x="765" y="62" fill="#93a0b8" font-size="11">cell≥3600mV + |I|≤500mA</text>
+    <text x="765" y="78" fill="#93a0b8" font-size="11">保持 1h → 物理兜底停充</text>
+  </g>
+  <g stroke="#4da3ff" fill="none" class="flow" marker-end="url(#a5)">
+    <path d="M160 190 L225 190"/>
+    <path d="M360 190 L425 190"/>
+    <path d="M560 190 L625 190"/>
+    <path d="M495 160 L495 90"/>
+    <path d="M610 160 L610 120 L615 120"/>
+  </g>
+  <g font-size="10.5" fill="#93a0b8">
+    <text x="192" y="182" text-anchor="middle">need=1</text>
+    <text x="392" y="182" text-anchor="middle">1.5s</text>
+    <text x="592" y="182" text-anchor="middle">判满</text>
+  </g>
+  <!-- 冷却 -->
+  <path d="M695 220 L695 300 L95 300 L95 225" stroke="#ffb454" fill="none" stroke-dasharray="5 4"/>
+  <text x="395" y="320" text-anchor="middle" fill="#ffb454" font-size="11.5">10min 冷却（拔插 220V 立即解除）→ 且 SOC&lt;100 才重新开始</text>
+  <text x="450" y="360" text-anchor="middle" fill="#93a0b8" font-size="11.5">运行中任一时段：220V 丢失 → input_abort 全断（充电中不鸣蜂鸣器）</text>
+</svg>
+<p class="cap">图 4-1 充电状态机与三条判满路径</p>
+</div>
+
+<h2 id="fsm-inv">5. 放电 / 逆变状态图</h2>
+<div class="diagram">
+<svg viewBox="0 0 900 250" role="img" aria-label="逆变状态机">
+  <g font-size="12" text-anchor="middle">
+    <rect x="20" y="90" width="120" height="56" rx="26" fill="#1d2637" stroke="#93a0b8"/>
+    <text x="80" y="116" fill="#cfe0ff">IDLE</text><text x="80" y="134" fill="#93a0b8" font-size="10">SOC≥1% 才走</text>
+
+    <rect x="200" y="90" width="120" height="56" rx="26" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="260" y="112" fill="#cfe0ff">PRECHARGE</text><text x="260" y="130" fill="#93a0b8" font-size="10">PD4 1.5s</text>
+
+    <rect x="380" y="90" width="120" height="56" rx="26" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="440" y="112" fill="#cfe0ff">DC_CONNECT</text><text x="440" y="130" fill="#93a0b8" font-size="10">PD7 0.5s→断PD4</text>
+
+    <rect x="560" y="90" width="120" height="56" rx="26" fill="#1d2637" stroke="#4da3ff"/>
+    <text x="620" y="112" fill="#cfe0ff">OUTPUT</text><text x="620" y="130" fill="#93a0b8" font-size="10">等 1.5s</text>
+
+    <rect x="740" y="90" width="120" height="56" rx="26" fill="#1a2536" stroke="#38d39f" stroke-width="2"/>
+    <text x="800" y="112" fill="#cfe0ff">RUNNING</text><text x="800" y="130" fill="#93a0b8" font-size="10">PD0 闭合</text>
+  </g>
+  <g stroke="#4da3ff" class="flow" fill="none" marker-end="url(#ar)">
+    <path d="M140 118 L195 118"/><path d="M320 118 L375 118"/><path d="M500 118 L555 118"/><path d="M680 118 L735 118"/>
+  </g>
+  <text x="450" y="40" text-anchor="middle" fill="#ffb454" font-size="12">任何一步：SOC&lt;1%（0%）或数据无效 → 不进逆变/立即关断，3 声 + ERR17</text>
+  <text x="450" y="200" text-anchor="middle" fill="#93a0b8" font-size="11.5">运行中撤销条件：用户取消 / 空载 60s / 过载 5s / 输出计量失效 / SOC&lt;1%</text>
+  <text x="450" y="224" text-anchor="middle" fill="#93a0b8" font-size="11.5">傍路输出（有 220V）不受电量限制</text>
+</svg>
+<p class="cap">图 5-1 逆变启动四段时序与撤销条件</p>
+</div>
+
+<h2 id="dfd">6. 数据流总图</h2>
+<div class="diagram">
+<svg viewBox="0 0 900 300" role="img" aria-label="数据流">
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="20" y="120" width="120" height="60" rx="8" fill="#161d2c" stroke="#4da3ff"/>
+    <text x="80" y="146" fill="#4da3ff">MAX17263</text><text x="80" y="166" fill="#93a0b8" font-size="10.5">14 个寄存器</text>
+
+    <rect x="180" y="110" width="150" height="80" rx="8" fill="#1d2637" stroke="#38d39f"/>
+    <text x="255" y="134" fill="#38d39f">drv_max17263</text>
+    <text x="255" y="154" fill="#93a0b8" font-size="10.5">换算/范围检查</text>
+    <text x="255" y="172" fill="#93a0b8" font-size="10.5">3s 一次</text>
+
+    <rect x="370" y="110" width="150" height="80" rx="8" fill="#1d2637" stroke="#38d39f"/>
+    <text x="445" y="134" fill="#38d39f">mod_battery</text>
+    <text x="445" y="154" fill="#93a0b8" font-size="10.5">故障滞回 / 学习日志</text>
+    <text x="445" y="172" fill="#93a0b8" font-size="10.5">快照发布(临界区)</text>
+
+    <rect x="560" y="40" width="140" height="52" rx="8" fill="#161d2c" stroke="#ffb454"/>
+    <text x="630" y="62" fill="#ffb454">AppMainTask</text><text x="630" y="80" fill="#93a0b8" font-size="10.5">保护/继电器/判满</text>
+
+    <rect x="560" y="120" width="140" height="52" rx="8" fill="#161d2c" stroke="#ffb454"/>
+    <text x="630" y="142" fill="#ffb454">DisplayTask</text><text x="630" y="160" fill="#93a0b8" font-size="10.5">SOC/图标/ERR</text>
+
+    <rect x="560" y="200" width="140" height="52" rx="8" fill="#161d2c" stroke="#ffb454"/>
+    <text x="630" y="222" fill="#ffb454">BleTask</text><text x="630" y="240" fill="#93a0b8" font-size="10.5">JSON 上报</text>
+
+    <rect x="740" y="120" width="140" height="52" rx="8" fill="#161d2c" stroke="#38d39f"/>
+    <text x="810" y="142" fill="#38d39f">W25Q128</text><text x="810" y="160" fill="#93a0b8" font-size="10.5">学习值日志</text>
+  </g>
+  <g stroke="#4da3ff" class="flow" fill="none" marker-end="url(#ar)">
+    <path d="M140 150 L175 150"/><path d="M330 150 L365 150"/>
+    <path d="M445 110 L445 70 L555 66"/><path d="M520 140 L555 145"/><path d="M520 165 L555 220"/>
+  </g>
+  <path d="M445 190 L445 250 L735 250 L735 176" stroke="#38d39f" class="flow" fill="none" marker-end="url(#ar2)"/>
+  <text x="590" y="270" text-anchor="middle" fill="#38d39f" font-size="10.5">每 60s / 关机时写学习值</text>
+</svg>
+<p class="cap">图 6-1 数据流：采样 → 快照 → 三处消费 + 持久化</p>
+</div>
+
+<div class="card" style="margin-top:30px">
+<h4>速查：最常被问到的 6 个数</h4>
+<table>
+<tr><th>项</th><th>值</th><th>含义</th></tr>
+<tr><td>电流 LSB</td><td>1.5625 mA</td><td>1mΩ 采样，满量程 ±51.2A</td></tr>
+<tr><td>容量 LSB</td><td>5 mAh</td><td>20Ah → 4000 counts</td></tr>
+<tr><td>电压 LSB</td><td>78.125 µV/节</td><td>CELLX 分压 1:20，芯片内部 ×2.5</td></tr>
+<tr><td>FQ 位</td><td>FStat bit7 (0x0080)</td><td>不是 bit5！bit5 是 X</td></tr>
+<tr><td>FQ 电流窗</td><td>25 ~ 250 mA</td><td>0.125~1.25 × IChgTerm(200mA)</td></tr>
+<tr><td>判满门槛</td><td>SOC=100%</td><td>FQ/TTF 只决定"立即停"还是"5min 后停"</td></tr>
+</table>
+</div>
+
+<p class="small" style="margin-top:26px">本文档为纯说明，未改动代码。所有数值取自当前工程：<code>battery_config.h</code>、<code>drv_max17263.[ch]</code>、<code>mod_battery.c</code>、<code>app_main_task.c</code>、<code>app_sensor_task.c</code>、<code>app_display_task.c</code>。</p>
+</main>
+</div>
+</body>
+</html>

@@ -11,7 +11,14 @@
 #include "bsp_io.h"
 #include "stm32f4xx_hal.h"
 
-/* 使能指定 GPIO 端口时钟 */
+/**
+ * @fn      bsp_io_enable_port_clk
+ * @brief   按 GPIO 端口指针使能对应 RCC 端口时钟
+ * @param   port  GPIO 端口 (GPIOA~GPIOE/GPIOH)
+ * @return  无
+ * @note    HAL_GPIO_Init 不会自动开时钟, 未开时钟的端口写入配置无效,
+ *          故封装成入口统一调用.
+ */
 static void bsp_io_enable_port_clk(GPIO_TypeDef *port)
 {
     if      (port == GPIOA) __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -22,7 +29,14 @@ static void bsp_io_enable_port_clk(GPIO_TypeDef *port)
     else if (port == GPIOH) __HAL_RCC_GPIOH_CLK_ENABLE();
 }
 
-/* 由引脚号推导 EXTI 中断号 */
+/**
+ * @fn      bsp_io_exti_irqn
+ * @brief   由引脚号推导其 EXTI 线对应的 NVIC 中断号
+ * @param   pin  引脚号 (GPIO_PIN_0 ~ GPIO_PIN_15)
+ * @return  IRQn_Type 对应的 EXTI 中断号
+ * @note    EXTI 线 5~9 与 10~15 各共享一个 NVIC 向量, 同组引脚共用中断入口,
+ *          ISR 内需再查具体引脚.
+ */
 static IRQn_Type bsp_io_exti_irqn(uint16_t pin)
 {
     switch (pin) {
@@ -35,8 +49,8 @@ static IRQn_Type bsp_io_exti_irqn(uint16_t pin)
         case GPIO_PIN_6:
         case GPIO_PIN_7:
         case GPIO_PIN_8:
-        case GPIO_PIN_9:  return EXTI9_5_IRQn;
-        default:          return EXTI15_10_IRQn;
+        case GPIO_PIN_9:  return EXTI9_5_IRQn;    /* PIN5~9 共享 EXTI9_5 向量 */
+        default:          return EXTI15_10_IRQn;  /* PIN10~15 共享 EXTI15_10 向量 */
     }
 }
 

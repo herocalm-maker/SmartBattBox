@@ -26,13 +26,15 @@ typedef struct {
     /* 输入侧 */
     float vin_v;              /* 输入电压 V */
     float vin_i;              /* 输入电流 A */
-    float vin_p_w;            /* 输入功率 W */
+    float vin_p_w;            /* 输入功率 W (原始值, 保护用) */
+    float vin_p_w_f;          /* 输入功率滤波值 (3样本中值, 仅供显示) */
     float vin_energy_wh;      /* 输入电能 Wh */
 
     /* 输出侧 */
     float vout_v;             /* 输出电压 V */
     float vout_i;             /* 输出电流 A */
-    float vout_p_w;           /* 输出功率 W */
+    float vout_p_w;           /* 输出功率 W (原始值, 保护用) */
+    float vout_p_w_f;         /* 输出功率滤波值 (3样本中值, 仅供显示) */
     float vout_energy_wh;     /* 输出电能 Wh */
 
     /* 频率 (Hz) */
@@ -73,6 +75,16 @@ void mod_metering_handler(void);
  *       空闲期累计的假失效立即触发输出守卫。
  */
 void mod_metering_reset_out_no_data(void);
+
+/**
+ * @brief 通路关闭期间立即清零输入/输出通道功率显示 (V/I/P/滤波值/频率),
+ *        并复位对应中值滤波器。
+ * @note  计量芯片在市电/输出断开后会断电, 读数残留 ~10s 才被通道失效兜底;
+ *        由 App 层在通路关闭期间周期调用, 强制显示 0。通路重新开启后
+ *        首个有效样本经中值滤波直通, 立即同步。
+ */
+void mod_metering_zero_input(void);
+void mod_metering_zero_output(void);
 
 /**
  * @brief  获取计量信息指针

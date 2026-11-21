@@ -89,6 +89,12 @@ static bool project_param_slot_valid(uint32_t addr, sys_param_t *out)
     return true;
 }
 
+/**
+ * @fn      project_param_backup_valid
+ * @brief   从外部存储读取备份参数并校验魔数与 CRC32。
+ * @param   out 接收备份内容的有效缓冲区指针。
+ * @return  true: 读取且校验通过; false: 指针为空/读取失败/魔数或 CRC 不符。
+ */
 static bool project_param_backup_valid(sys_param_t *out)
 {
     if (!out)

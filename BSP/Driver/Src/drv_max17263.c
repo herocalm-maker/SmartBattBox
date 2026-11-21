@@ -127,6 +127,30 @@ static int drv_max17263_write_verify(max17263_t *dev, uint8_t reg, uint16_t expe
     return drv_max17263_record_error(dev, reg, M_EVERIFY);
 }
 
+/* 前向声明: 寄存器位等待清零实现在下方。 */
+static int drv_max17263_wait_clear(max17263_t *dev, uint8_t reg, uint16_t mask);
+
+/*********************************************************************
+ * @fn      drv_max17263_quick_start
+ * @brief   触发 Quick Start, 让芯片基于当前OCV重新估计初始SOC。
+ * @param   dev  已绑定且已初始化的驱动实例
+ * @return  M_OK成功；M_EARG未初始化；M_ETIMEOUT等待清零超时；其他为通信错误。
+ * @note    RepSOC(06h)/RepCap(05h) 为只读结果寄存器, 写入会被忽略且回读失败;
+ *          换电池/深放后需要重估SOC时使用本函数。MiscCfg bit10 自清零,
+ *          完成一次 OCV 重学习期间 DNR 会置位, 本函数只等待命令位清零。
+********************************************************************/
+int drv_max17263_quick_start(max17263_t *dev)
+{
+    uint16_t misc;
+    if (!dev || !dev->initialized)
+    {
+        return M_EARG;
+    }
+    MAX17263_TRY(drv_max17263_read(dev, M_MISCCFG, &misc));
+    MAX17263_TRY(drv_max17263_write(dev, M_MISCCFG, (uint16_t)(misc | M_MISC_QUICK_START)));
+    return drv_max17263_wait_clear(dev, M_MISCCFG, M_MISC_QUICK_START);
+}
+
 /*********************************************************************
  * @fn      drv_max17263_update_bits
  * @brief   读改写指定字段，保留掩码外的原始位。
@@ -230,7 +254,9 @@ int drv_max17263_bind(max17263_t *dev, const max17263_bus_t *bus, const max17263
     term_raw = ((uint64_t)config->ichgterm_ma * config->rsense_uohm * 16 + 12500) / 25000;
     if (capacity_raw < 2 || capacity_raw > 65535 || term_raw < 1 || term_raw > 32767 ||
         config->empty_mv < 2000 || config->empty_mv > 4000 || config->recovery_mv <= config->empty_mv ||
-        config->recovery_mv > 5080 || config->empty_mv % 10 || config->recovery_mv % 40)
+        config->recovery_mv > 5080 || config->empty_mv % 10 || config->recovery_mv % 40 ||
+        (config->full_soc_thr_pct != 0 &&
+         (config->full_soc_thr_pct < 50 || config->full_soc_thr_pct > 100)))
     {
         return M_ERANGE;
     }
@@ -256,6 +282,22 @@ int drv_max17263_bind(max17263_t *dev, const max17263_bus_t *bus, const max17263
     dev->term_raw = (uint16_t)term_raw;
     /* VEmpty的VE占D15..D7，VR占D6..D0，不能按高低两个字节拼接。 */
     dev->empty_raw = (uint16_t)(((config->empty_mv / 10) << 7) | (config->recovery_mv / 40));
+    /* FullSOCThr(13h): D15..D8=VFSOC判满阈值, D7..D0=低位保持5。
+     * 依据 UG6597 p30: EZ(未特征化)推荐 80% (0x5005), 特征化模型用 95% (0x5F05)。
+     * FQ 判满 = VFSOC>FullSOCThr 且 Current/AvgCurrent 同时落在 [0.125, 1.25]×IChgTerm。 */
+    if (!config->model)
+    {
+        uint8_t thr = config->full_soc_thr_pct ? config->full_soc_thr_pct : 80u;
+        dev->fullsocthr_raw = (uint16_t)(((uint16_t)thr << 8) | 0x0005u);
+    }
+    else if (config->full_soc_thr_pct)
+    {
+        dev->fullsocthr_raw = (uint16_t)(((uint16_t)config->full_soc_thr_pct << 8) | 0x0005u);
+    }
+    else
+    {
+        dev->fullsocthr_raw = 0;
+    }
     return M_OK;
 }
 
@@ -436,6 +478,11 @@ static int drv_max17263_configure(max17263_t *dev, const max17263_learned_t *lea
         MAX17263_TRY(drv_max17263_write_verify(dev, M_DESIGNCAP, dev->design_raw));
         MAX17263_TRY(drv_max17263_write_verify(dev, M_ICHGTERM, dev->term_raw));
         MAX17263_TRY(drv_max17263_write_verify(dev, M_VEMPTY, dev->empty_raw));
+        /* EZ 无特征化模型: 按配置写 FullSOCThr (EZ 推荐 80% = 0x5005), 必须在 Refresh 前写入。 */
+        if (dev->fullsocthr_raw)
+        {
+            MAX17263_TRY(drv_max17263_write_verify(dev, M_FULLSOCTHR, dev->fullsocthr_raw));
+        }
         MAX17263_TRY(drv_max17263_write(dev, M_MODELCFG, (uint16_t)(model_config | 0x8000)));
         MAX17263_TRY(drv_max17263_wait_clear(dev, M_MODELCFG, 0x8000));
         if (learned)
@@ -506,6 +553,25 @@ int drv_max17263_initialize(max17263_t *dev, const max17263_learned_t *learned)
         if (value != dev->empty_raw)
         {
             return M_EPROFILE;
+        }
+        /* FullSOCThr/ScOcvLim 等判满相关参数也纳入暖启动校验, 不匹配时要求
+         * 完整 POR 重新配置 (MCU 单独复位不会重写这些寄存器)。 */
+        if (dev->fullsocthr_raw)
+        {
+            MAX17263_TRY(drv_max17263_read(dev, M_FULLSOCTHR, &value));
+            if (value != dev->fullsocthr_raw)
+            {
+                return M_EPROFILE;
+            }
+        }
+        /* EZ 路径固定写 ScOcvLim=0x479E (LFP 平台区), 一并校验。 */
+        if (!dev->cfg.model)
+        {
+            MAX17263_TRY(drv_max17263_read(dev, M_SCOCVLIM, &value));
+            if (value != 0x479Eu)
+            {
+                return M_EPROFILE;
+            }
         }
         MAX17263_TRY(drv_max17263_read(dev, M_MODELCFG, &value));
         if ((value & 0xA4F0u) != (uint16_t)(0x0060u | (dev->cfg.ntc_100k ? 0x2000u : 0)))
@@ -587,8 +653,8 @@ int drv_max17263_sample(max17263_t *dev, max17263_sample_t *sample)
 {
     static const uint8_t registers[] = {M_STATUS, M_VCELL,  M_AVGVCELL, M_CURRENT,    M_AVGCURRENT,
                                         M_TEMP,   M_REPSOC, M_REPCAP,   M_FULLCAPREP, M_FULLCAPNOM,
-                                        M_CYCLES, M_TTE,    M_TTF};
-    uint16_t raw[13];
+                                        M_CYCLES, M_TTE,    M_TTF,      M_VFSOC};
+    uint16_t raw[14];
     uint16_t status_end;
     uint16_t fstat;
     unsigned index;
@@ -605,7 +671,7 @@ int drv_max17263_sample(max17263_t *dev, max17263_sample_t *sample)
     {
         return M_ENOTREADY;
     }
-    for (index = 0; index < 13; index++)
+    for (index = 0; index < 14; index++)
     {
         MAX17263_TRY(drv_max17263_read(dev, registers[index], &raw[index]));
     }
@@ -622,7 +688,10 @@ int drv_max17263_sample(max17263_t *dev, max17263_sample_t *sample)
         return M_ENOTREADY;
     }
     snapshot.status = (uint16_t)(raw[0] | status_end);
+    snapshot.fstat_raw = fstat;
     snapshot.full_qualified = (fstat & M_FSTAT_FQ) != 0;
+    snapshot.empty_detected = (fstat & M_FSTAT_EDET) != 0;
+    snapshot.relaxed = (fstat & M_FSTAT_RELDT) != 0;
     snapshot.timestamp_ms = dev->bus.now_ms(dev->bus.ctx);
     cap_lsb = 5000.0f / (float)dev->cfg.rsense_uohm;
     current_lsb = 1562.5f / (float)dev->cfg.rsense_uohm;
@@ -634,6 +703,7 @@ int drv_max17263_sample(max17263_t *dev, max17263_sample_t *sample)
     snapshot.avg_current_ma = drv_max17263_decode_signed16(raw[4]) * current_lsb;
     snapshot.temp_c = drv_max17263_decode_signed16(raw[5]) / 256.0f;
     snapshot.soc_pct = raw[6] / 256.0f;
+    snapshot.vfsoc_pct = raw[13] / 256.0f;
     snapshot.remaining_mah = raw[7] * cap_lsb;
     snapshot.full_mah = raw[8] * cap_lsb;
     snapshot.nominal_full_mah = raw[9] * cap_lsb;
@@ -648,7 +718,8 @@ int drv_max17263_sample(max17263_t *dev, max17263_sample_t *sample)
     snapshot.characterized = dev->cfg.model != NULL;
     /* Raw endpoints imply current ADC saturation. Never publish as real current. */
     if (snapshot.cell_mv < 1500 || snapshot.cell_mv > 4500 || snapshot.temp_c < -40 || snapshot.temp_c > 85 ||
-        snapshot.soc_pct > 100.5f || !raw[8] || !raw[9] || raw[3] == 0x8000 || raw[3] == 0x7FFF ||
+        snapshot.soc_pct > 100.5f || snapshot.vfsoc_pct > 100.5f || !raw[8] || !raw[9] ||
+        raw[3] == 0x8000 || raw[3] == 0x7FFF ||
         raw[4] == 0x8000 || raw[4] == 0x7FFF || (dev->cfg.external_ntc && (snapshot.status & M_BST)))
     {
         return M_ERANGE;

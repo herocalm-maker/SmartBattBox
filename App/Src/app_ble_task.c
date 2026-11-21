@@ -49,7 +49,7 @@ void app_ble_report_status(void)
         len += snprintf(s_json_buf + len, sizeof(s_json_buf) - len,
                         ",\"soc\":%u,\"vbat\":%lu,\"cur\":%ld,\"die_temp\":%d,\"full\":%u", bat->soc,
                         (unsigned long)bat->voltage_mv, (long)bat->current_ma, bat->temp_deg,
-                        bat->full_qualified);
+                        (unsigned)battery_full_active());
     }
     if (m && m->online)
     {

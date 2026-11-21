@@ -21,6 +21,13 @@ static bool s_spi_inited[BSP_SPI_MAX] = {false};
  * HAL MSP 回调 (HAL_SPI_Init 内部调用, 配置 GPIO/时钟)
  *====================================================================*/
 
+/**
+ * @fn      HAL_SPI_MspInit
+ * @brief   SPI2 底层初始化 (HAL 回调): 使能 GPIOB/SPI2 时钟, 三线配置为 AF5 复用推挽
+ * @param   hspi  SPI 句柄 (由 HAL_SPI_Init 内部传入, Instance 已设置)
+ * @return  无
+ * @note    片选 CS 不在此配置, 由上层以普通 GPIO 软件方式控制 (与 Init 中 NSS_SOFT 对应).
+ */
 void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)
 {
     if (hspi->Instance == SPI2) {
@@ -37,6 +44,12 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)
     }
 }
 
+/**
+ * @fn      HAL_SPI_MspDeInit
+ * @brief   SPI2 底层反初始化 (HAL 回调): 关外设时钟并释放复用引脚
+ * @param   hspi  SPI 句柄
+ * @return  无
+ */
 void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi)
 {
     if (hspi->Instance == SPI2) {
@@ -50,6 +63,13 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi)
  * 内部辅助: 端口 → 句柄指针 (带初始化检查)
  *====================================================================*/
 
+/**
+ * @fn      _get_handle
+ * @brief   按端口枚举取 SPI 句柄 (带越界与初始化状态检查)
+ * @param   port  SPI 端口枚举
+ * @return  SPI_HandleTypeDef* 有效句柄; 端口非法或未初始化返回 NULL
+ * @note    收发类 API 统一经此入口, 未初始化即访问直接拒绝, 避免操作全 0 句柄.
+ */
 static SPI_HandleTypeDef *_get_handle(bsp_spi_port_t port)
 {
     if (port >= BSP_SPI_MAX) return NULL;
@@ -87,12 +107,12 @@ bool bsp_spi_init(bsp_spi_port_t port, const bsp_spi_config_t *cfg)
     hspi->Init.DataSize           = cfg->data_size;
     hspi->Init.CLKPolarity        = cfg->cpol;
     hspi->Init.CLKPhase           = cfg->cpha;
-    hspi->Init.NSS                = SPI_NSS_SOFT;
+    hspi->Init.NSS                = SPI_NSS_SOFT;      /* 软件片选: CS 由上层 GPIO 拉低/拉高, 便于多从机扩展 */
     hspi->Init.BaudRatePrescaler  = cfg->baudrate_prescaler;
     hspi->Init.FirstBit           = cfg->first_bit;
     hspi->Init.TIMode             = SPI_TIMODE_DISABLE;
     hspi->Init.CRCCalculation     = SPI_CRCCALCULATION_DISABLE;
-    hspi->Init.CRCPolynomial      = 10;
+    hspi->Init.CRCPolynomial      = 10;                 /* 硬件 CRC 已关闭, 多项式值仅为占位 */
 
     if (HAL_SPI_Init(hspi) != HAL_OK) {
         return false;
@@ -142,13 +162,14 @@ bool bsp_spi_transfer(bsp_spi_port_t port, const uint8_t *tx, uint8_t *rx,
     SPI_HandleTypeDef *hspi = _get_handle(port);
     if (hspi == NULL) return false;
 
+    /* 静态哑元缓冲: tx/rx 任一为 NULL 时占位, 保证全双工传输期间读写地址始终有效 */
     static uint8_t s_dummy_tx;
     static uint8_t s_dummy_rx;
     const uint8_t *tx_p = (tx != NULL) ? tx : &s_dummy_tx;
     uint8_t       *rx_p = (rx != NULL) ? rx : &s_dummy_rx;
 
     if (tx == NULL) {
-        s_dummy_tx = 0x00u;
+        s_dummy_tx = 0x00u;   /* 只收不发场景: 总线上输出空字节以驱动时钟 */
     }
 
     return HAL_SPI_TransmitReceive(hspi, (uint8_t *)tx_p, rx_p, len, timeout_ms) == HAL_OK;

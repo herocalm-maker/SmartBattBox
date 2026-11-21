@@ -9,7 +9,7 @@ volatile unsigned test_checks,test_failures,test_first_failure;
 typedef struct {
     uint16_t reg[256]; uint32_t tick; unsigned reads,writes;
     int fail_read,fail_write,fail_count; bool dnr_stuck,refresh_stuck,load_stuck;
-    bool corrupt_table,lock_bad,reset_mid_sample;
+    bool corrupt_table,lock_bad,reset_mid_sample,quick_stuck;
 } mock_t;
 static mock_t hw;
 static max17263_t dev;
@@ -36,6 +36,7 @@ static int write_bus(void *ctx,uint8_t addr,uint8_t r,const uint8_t *b,size_t n)
     else m->reg[r]=v;
     if(r==M_MODELCFG&&!m->refresh_stuck) m->reg[r]&=0x7FFF;
     if(r==M_CONFIG2&&!m->load_stuck) m->reg[r]&=(uint16_t)~0x20;
+    if(r==M_MISCCFG&&!m->quick_stuck) m->reg[r]&=(uint16_t)~0x0400; /* Quick Start self-clears */
     return 0;
 }
 static void delay_bus(void *ctx,uint32_t t) { ((mock_t *)ctx)->tick+=t; }
@@ -64,11 +65,22 @@ static void basic(void) {
     CHECK(hw.reg[M_VEMPTY]==0x8C50&&hw.reg[M_MODELCFG]==0x0068);
     CHECK(hw.reg[M_HIBCFG]==0x870C&&!(hw.reg[M_STATUS]&M_POR));
     CHECK((hw.reg[M_CONFIG]&0x8210)==0x8210);
+    CHECK(hw.reg[M_FULLSOCTHR]==0x5005&&hw.reg[M_SCOCVLIM]==0x479E); /* EZ: 80% + LFP plateau */
     n=hw.writes; CHECK(drv_max17263_initialize(&dev,NULL)==M_OK&&hw.writes==n);
     measurements(); CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.valid);
     CHECK(s.pack_mv==25600&&s.current_ma==-1000&&s.temp_c==-5);
-    CHECK(s.soc_pct==50&&s.remaining_mah==10000&&s.full_mah==19000);
+    CHECK(s.soc_pct==50&&s.vfsoc_pct==50&&s.remaining_mah==10000&&s.full_mah==19000);
     CHECK(s.soh_capacity_pct==95&&s.cycles>12.339f&&s.cycles<12.341f);
+    /* FQ = FStat bit7 (0x0080); bit9 RelDt 静置, bit8 EDet 空电 (UG6597 Table 20) */
+    hw.reg[M_FSTAT]=0x0080; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.full_qualified&&!s.relaxed&&!s.empty_detected);
+    hw.reg[M_FSTAT]=0x0200; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&!s.full_qualified&&s.relaxed);
+    hw.reg[M_FSTAT]=0x0100; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.empty_detected&&!s.full_qualified);
+    hw.reg[M_FSTAT]=0;
+    /* FullSOCThr/ScOcvLim drift on warm start must be rejected */
+    hw.reg[M_FULLSOCTHR]=0x5F05;
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_EPROFILE);
+    hw.reg[M_FULLSOCTHR]=0x5005;
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
     CHECK(s.tte_valid&&s.tte_s==3600&&!s.ttf_valid&&s.ttf_s==-1);
     hw.reg[M_CURRENT]=1280; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&!s.tte_valid&&s.ttf_valid);
     hw.reg[M_CURRENT]=0xFFFF; CHECK(drv_max17263_sample(&dev,&s)==M_OK&&s.current_ma<0);
@@ -109,6 +121,8 @@ static void full(void) {
     CHECK(hw.reg[M_FULLCAPREP]==7500&&hw.reg[M_FULLCAPNOM]==7800&&hw.reg[M_CYCLES]==2345);
     CHECK(hw.reg[M_DQACC]==3900&&hw.reg[M_DPACC]==0x0C80&&hw.reg[M_MIXCAP]==3900);
     CHECK(!hw.reg[M_LOCK1]&&!hw.reg[M_LOCK2]&&hw.reg[M_QR20]==3&&hw.reg[M_QR30]==4);
+    /* characterized model path: no default FullSOCThr (model optional regs own it) */
+    CHECK(hw.reg[M_FULLSOCTHR]==0);
     fresh(); cfg.model=&model; CHECK(drv_max17263_bind(&dev,&bus,&cfg)==M_OK);
     hw.corrupt_table=true; CHECK(drv_max17263_initialize(&dev,NULL)==M_EVERIFY);
     CHECK(!hw.reg[M_LOCK1]&&!hw.reg[M_LOCK2]&&hw.reg[M_HIBCFG]==0x870C&&(hw.reg[M_STATUS]&M_POR));
@@ -270,8 +284,19 @@ static void internal_and_high_current(void) {
     dev.cfg.external_ntc=true;
     CHECK(drv_max17263_sample(&dev,&s)==M_ERANGE && !s.valid);
 }
+static void quick_start(void) {
+    fresh(); /* bound but not initialized: must reject */
+    CHECK(drv_max17263_quick_start(&dev)==M_EARG);
+    CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    CHECK(drv_max17263_quick_start(&dev)==M_OK);
+    CHECK(!(hw.reg[M_MISCCFG]&0x0400)); /* bit self-cleared */
+    /* stuck Quick Start bit → timeout */
+    fresh(); CHECK(drv_max17263_initialize(&dev,NULL)==M_OK);
+    hw.quick_stuck=true;
+    CHECK(drv_max17263_quick_start(&dev)==M_ETIMEOUT);
+}
 __attribute__((noinline)) void test_done(void) { for(;;) {} }
 void test_main(void) {
     internal_and_high_current(); basic(); initialization_faults(); full(); alerts_led(); write_failure_sweep();
-    persistence(); application(); leds12_and_schematic(); test_done();
+    persistence(); application(); leds12_and_schematic(); quick_start(); test_done();
 }

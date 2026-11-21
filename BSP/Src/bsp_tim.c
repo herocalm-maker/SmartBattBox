@@ -33,6 +33,14 @@ static tim_cb_entry_t s_tim_cb_map[BSP_TIM_MAX] = {0};
 /* =====================================================================
  *  HAL MSP 回调 (由 HAL 内部调用)
  * ===================================================================== */
+/**
+ * @fn      HAL_TIM_Base_MspInit
+ * @brief   TIM3/TIM4 底层初始化 (HAL 回调): 使能定时器时钟并配置 NVIC 中断
+ * @param   tim_baseHandle  TIM 句柄 (由 HAL_TIM_Base_Init 内部传入, Instance 已设置)
+ * @return  无
+ * @note    抢占优先级均为 5 (RTOS 允许的中断优先级范围);
+ *          TIM4 子优先级更低 (看门狗监控 tick, 让位给 TIM3 的业务周期中断).
+ */
 void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *tim_baseHandle)
 {
     if (tim_baseHandle->Instance == TIM3)
@@ -55,6 +63,12 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *tim_baseHandle)
     }
 }
 
+/**
+ * @fn      HAL_TIM_Base_MspDeInit
+ * @brief   TIM3/TIM4 底层反初始化 (HAL 回调): 关外设时钟并关闭 NVIC 中断
+ * @param   tim_baseHandle  TIM 句柄
+ * @return  无
+ */
 void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef *tim_baseHandle)
 {
     if (tim_baseHandle->Instance == TIM3)
@@ -78,11 +92,23 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef *tim_baseHandle)
 /* =====================================================================
  *  TIM4 IRQ Handler (由 NVIC 调用)
  * ===================================================================== */
+/**
+ * @fn      TIM3_IRQHandler
+ * @brief   TIM3 中断入口, 转发 HAL 统一处理 (溢出事件最终进入 HAL_TIM_PeriodElapsedCallback)
+ * @param   无
+ * @return  无
+ */
 void TIM3_IRQHandler(void)
 {
     HAL_TIM_IRQHandler(&s_htim3);
 }
 
+/**
+ * @fn      TIM4_IRQHandler
+ * @brief   TIM4 中断入口, 转发 HAL 统一处理 (溢出事件最终进入 HAL_TIM_PeriodElapsedCallback)
+ * @param   无
+ * @return  无
+ */
 void TIM4_IRQHandler(void)
 {
     HAL_TIM_IRQHandler(&s_htim4);
@@ -93,8 +119,15 @@ void TIM4_IRQHandler(void)
  *  HAL 周期完成回调 (由 HAL 内部调用)
  *  注: TIM1 (HAL 系统时基, HAL_IncTick) 由 stm32f4xx_hal_timebase_tim.c 处理
  * ===================================================================== */
+/**
+ * @fn      HAL_TIM_PeriodElapsedCallback
+ * @brief   定时器溢出回调分发: TIM1 为系统时基, TIM3/TIM4 转发用户注册的周期回调
+ * @param   htim  发生溢出的 TIM 句柄
+ * @return  无
+ * @note    本回调在 ISR 上下文执行, 注册的用户回调须短小且不可阻塞.
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{    
+{
     if (htim->Instance == TIM1)
     {
        HAL_IncTick();
@@ -246,6 +279,12 @@ bool bsp_tim_stop(BSP_TIM_NUM index)
 /* =====================================================================
  *  系统滴答 (包装 HAL_GetTick, 上层经此获取, 不直调 HAL)
  * ===================================================================== */
+/**
+ * @fn      bsp_get_tick_ms
+ * @brief   获取系统毫秒时基 (uwTick, 由 TIM1 时基中断维护)
+ * @param   无
+ * @return  uint32_t 上电/复位以来的毫秒数 (32 位会回绕, 跨度比较须用减法)
+ */
 uint32_t bsp_get_tick_ms(void)
 {
     return HAL_GetTick();

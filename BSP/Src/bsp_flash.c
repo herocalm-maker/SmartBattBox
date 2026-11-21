@@ -24,6 +24,14 @@ static uint32_t s_sector; /* 待擦除的扇区号 */
 /*--------------------------------------------------------------------
  * 内部: 校验地址范围落在 PARAM 扇区内
  *--------------------------------------------------------------------*/
+/**
+ * @fn      bsp_flash_addr_valid
+ * @brief   校验 [addr, addr+len) 是否完整落在初始化时设定的 Flash 窗口内
+ * @param   addr  起始地址
+ * @param   len   长度 (字节)
+ * @return  bool true=范围合法
+ * @note    读/写前统一经此检查, 防止越界改写窗口外的 Bootloader/App 区.
+ */
 static bool bsp_flash_addr_valid(uint32_t addr, uint16_t len)
 {
     return (addr >= s_base) &&
@@ -35,6 +43,15 @@ static bool bsp_flash_addr_valid(uint32_t addr, uint16_t len)
  * 函数实现
  *====================================================================*/
 
+/**
+ * @fn      bsp_flash_init
+ * @brief   登记 Flash 操作窗口 (基地址/大小/待擦扇区号), 供后续读写擦使用
+ * @param   base    窗口起始物理地址
+ * @param   size    窗口大小 (字节)
+ * @param   sector  待擦除的扇区号 (擦除粒度为整扇区)
+ * @return  bool true=成功 false=参数越界
+ * @note    仅记录参数不触碰硬件; 分区布局与备份策略由上层负责.
+ */
 bool bsp_flash_init(uint32_t base, uint32_t size, uint32_t sector)
 {
     /* 窗口须落在 MCU 内部 Flash 地址空间内 (0x08000000-0x080FFFFF) */
@@ -48,6 +65,15 @@ bool bsp_flash_init(uint32_t base, uint32_t size, uint32_t sector)
     return true;
 }
 
+/**
+ * @fn      bsp_flash_read
+ * @brief   从内部 Flash 窗口内读取 len 字节到 buf
+ * @param   addr  起始地址 (须在窗口内)
+ * @param   buf   目标缓冲区 (调用方保证容量)
+ * @param   len   读取长度 (字节)
+ * @return  bool true=成功 false=参数/范围非法
+ * @note    内部 Flash 统一内存映射编址, 读操作无需解锁, 直接 memcpy 即可.
+ */
 bool bsp_flash_read(uint32_t addr, void *buf, uint16_t len)
 {
     if (buf == NULL || len == 0 || !bsp_flash_addr_valid(addr, len))
@@ -58,6 +84,16 @@ bool bsp_flash_read(uint32_t addr, void *buf, uint16_t len)
     return true;
 }
 
+/**
+ * @fn      bsp_flash_write
+ * @brief   向内部 Flash 窗口内编程写入 len 字节 (不含擦除)
+ * @param   addr  起始地址 (须在窗口内, 且目标区域已擦除为 0xFF)
+ * @param   buf   源数据缓冲区
+ * @param   len   写入长度 (字节)
+ * @return  bool true=成功 false=参数非法/编程失败
+ * @note    F4 的 Flash 只能把已擦除的位写 0, 写前必须保证区域已擦除;
+ *          中途失败立即重新上锁, 避免把 Flash 留在解锁状态.
+ */
 bool bsp_flash_write(uint32_t addr, const void *buf, uint16_t len)
 {
     if (buf == NULL || len == 0 || !bsp_flash_addr_valid(addr, len))
@@ -94,6 +130,14 @@ bool bsp_flash_write(uint32_t addr, const void *buf, uint16_t len)
     return true;
 }
 
+/**
+ * @fn      bsp_flash_erase
+ * @brief   整扇区擦除 init 时登记的扇区 (内容全部变为 0xFF)
+ * @param   无
+ * @return  bool true=成功 false=擦除失败
+ * @note    VoltageRange_3 对应 2.7~3.6V 供电下的 x32 并行擦写; 扇区擦除耗时较长,
+ *          调用方需评估擦除期间关中断/阻塞对实时任务的影响.
+ */
 bool bsp_flash_erase(void)
 {
     HAL_FLASH_Unlock();

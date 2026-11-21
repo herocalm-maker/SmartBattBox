@@ -184,9 +184,26 @@ void bsp_wdg_clear_task_cnt(void)
 
 /**
  * @brief  初始化监控 (IWDG 初始化 + 清零计数, 由 main 调用)
+ * @note   调试器连接时跳过 IWDG 并使能 halt 冻结:
+ *           IWDG 由 LSI 独立时钟驱动, 内核被调试器 halt 后不再喂狗,
+ *           8.19s 后必然复位 —— 表现为 J-Link 烧写报 "Failed to erase
+ *           sectors" / 单步时目标突然重启 / 寄存器读回 0xDEADBEEF。
+ *         Debug 构建(-DDEBUG)下检测到调试器 (DHCSR.C_DEBUGEN) 就不启动
+ *         IWDG; 正式 Release 构建不受影响。
  */
 void bsp_wdg_monitor_init(void)
 {
+#if defined(DEBUG)
+  /* 内核 halt 时冻结 IWDG, 便于单步/烧写; 该位只影响调试暂停状态 */
+  __HAL_DBGMCU_FREEZE_IWDG();
+
+  /* 调试器已连接: 不启动 IWDG, 避免调试期间被看门狗复位 */
+  if ((CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) != 0u)
+  {
+    return;
+  }
+#endif
+
   bsp_wdg_config_t wdg_cfg = {
     .timeout_ms = BOARD_IWDG_TIMEOUT_MS,
   };

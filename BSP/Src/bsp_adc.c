@@ -54,6 +54,14 @@ static volatile uint16_t s_adc1_dma_buf[BSP_ADC_DMA_BUF_LEN];
  *
  *  配置 GPIO 模拟引脚 + DMA2_Stream0 通道 + NVIC.
  * ===================================================================== */
+/**
+ * @fn      HAL_ADC_MspInit
+ * @brief   ADC1 底层初始化 (HAL 回调): 使能时钟, 配置模拟输入引脚, 初始化 DMA2_Stream0 并使能其中断
+ * @param   adcHandle  ADC 句柄 (由 HAL_ADC_Init 内部传入, Instance 已设置)
+ * @return  无
+ * @note    引脚掩码按端口分组初始化, 防止 PC1 的 PIN_1 混入 GPIOA 掩码后
+ *          把 PA1 (UART4_RX) 误配成模拟输入.
+ */
 void HAL_ADC_MspInit(ADC_HandleTypeDef *adcHandle)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -107,6 +115,12 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef *adcHandle)
     }
 }
 
+/**
+ * @fn      HAL_ADC_MspDeInit
+ * @brief   ADC1 底层反初始化 (HAL 回调): 关时钟, 释放 GPIO/DMA/NVIC 资源
+ * @param   adcHandle  ADC 句柄 (由 HAL_ADC_DeInit 内部传入)
+ * @return  无
+ */
 void HAL_ADC_MspDeInit(ADC_HandleTypeDef *adcHandle)
 {
     if (adcHandle->Instance == ADC1)
@@ -259,6 +273,14 @@ uint16_t bsp_adc_get_mv_average(bsp_adc_ch_enum ch)
 /* =====================================================================
  *  DMA2_Stream0 中断处理 (ADC1 DMA)
  * ===================================================================== */
+/**
+ * @fn      DMA2_Stream0_IRQHandler
+ * @brief   ADC1 DMA 传输中断入口 (DMA2_Stream0), 转发 HAL 统一处理
+ * @param   无
+ * @return  无
+ * @note    CIRCULAR 模式下缓冲区由 DMA 硬件自持续刷新, 本中断仅清标志/走回调,
+ *          数据读取路径 (bsp_adc_get_raw*) 不依赖本中断.
+ */
 void DMA2_Stream0_IRQHandler(void)
 {
     /* 标准 HAL DMA 中断处理: 清除 TC/HT/FE 标志并调用注册回调 */

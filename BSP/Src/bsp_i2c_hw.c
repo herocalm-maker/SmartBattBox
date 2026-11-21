@@ -110,7 +110,7 @@ uint8_t bsp_i2c_hw_writeData(uint8_t deviceAddr, uint8_t RegAddr, uint8_t *wbuff
     }
     if((st == HAL_ERROR) && ((HAL_I2C_GetError(&hi2c1_hw) & HAL_I2C_ERROR_AF) != 0U))
     {
-        return BSP_I2C_ERR_ADDR;
+        return BSP_I2C_ERR_ADDR;    /* 地址NACK: 芯片不在线/地址错/无上拉/无供电 */
     }
     return BSP_I2C_ERR;
 }

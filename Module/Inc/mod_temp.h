@@ -40,6 +40,7 @@ typedef struct {
     int16_t         inv_temp;    /* 逆变器 温度 (0.1°C) */
     int16_t         max_temp;    /* 当前最高温度 */
     temp_src_enum   max_src;     /* 最高温度来源 */
+    bool            valid;       /* true=至少完成过一次采样; 上电初期为 false */
 } TEMP_INFO_T;
 
 /*--------------------------------------------------------------------

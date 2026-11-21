@@ -16,6 +16,7 @@
 ********************************************************************/
 void drv_led_init(void)
 {
+    /* SIG/SIG2 低电平点亮 → 初值高(灭); 报警 LED 高电平点亮 → 初值低(灭) */
     bsp_gpio_init(BOARD_LED1_PORT, BOARD_LED1_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,      GPIO_PIN_SET, GPIO_SPEED_FREQ_LOW);
     bsp_gpio_init(BOARD_LED2_PORT, BOARD_LED2_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,      GPIO_PIN_SET, GPIO_SPEED_FREQ_LOW);
     bsp_gpio_init(BOARD_ALARM_LED_PORT, BOARD_ALARM_LED_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
@@ -34,6 +35,7 @@ void drv_led_init(void)
 ********************************************************************/
 void drv_led_on(led_id_enum id)
 {
+    /* 极性: SIG/SIG2 低电平点亮(写 RESET), ALM 高电平点亮(写 SET) */
     switch (id)
     {
         case LED_SIG:
@@ -58,6 +60,7 @@ void drv_led_on(led_id_enum id)
 ********************************************************************/
 void drv_led_off(led_id_enum id)
 {
+    /* 熄灭电平与点亮相反: SIG/SIG2 写 SET, ALM 写 RESET */
     switch (id)
     {
         case LED_SIG:

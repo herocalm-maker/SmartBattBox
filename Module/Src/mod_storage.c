@@ -86,6 +86,7 @@ int mod_storage_battery_read(void *c, uint32_t o, uint8_t *b, size_t n)
     {
         return -1;
     }
+    /* 电池区内部偏移映射到 W25Q128 全局地址 (电池区从 STORAGE_SEC_BATTERY_START 扇区起) */
     bool ok = drv_w25q128_read(STORAGE_SECTOR_BYTES * STORAGE_SEC_BATTERY_START + o, b, (uint32_t)n);
     osMutexRelease(storage_mutex);
     return ok ? 0 : -1;
@@ -133,6 +134,7 @@ int mod_storage_battery_erase(void *c, unsigned sector)
         return -1;
     }
     ok = drv_w25q128_erase_sector(STORAGE_SEC_BATTERY_START + sector);
+    /* NOR 擦除后只能为全 0xFF, 分块回读逐字节验证擦除干净, 残留 1→0 位会导致记录校验失败 */
     for (unsigned o = 0; ok && o < STORAGE_SECTOR_BYTES; o += sizeof(b))
     {
         ok = drv_w25q128_read(STORAGE_SECTOR_BYTES * (STORAGE_SEC_BATTERY_START + sector) + o, b, sizeof(b));
@@ -160,6 +162,7 @@ int mod_storage_param_backup_write(const uint8_t *data, size_t len)
     {
         return -1;
     }
+    /* 先整扇区擦除再写: NOR 物理特性只能把位 1 写成 0, 不擦除会残留旧数据 */
     bool ok = drv_w25q128_erase_sector(STORAGE_SECTOR_BYTES * STORAGE_SEC_CONFIG);
     if (ok)
     {

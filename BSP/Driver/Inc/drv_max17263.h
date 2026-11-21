@@ -79,7 +79,18 @@ enum
 #define M_POR 0x0002u
 #define M_BST 0x0008u
 #define M_ALERT_FLAGS 0xFFC4u
-#define M_FSTAT_FQ (1u << 6) /* FStat.FQ: 充电终止条件全部满足(充满), 见UG6597 End-of-Charge */
+/* FStat(3Dh) 位定义 — 依据 UG6597 Rev3 Table 20 (p39):
+ *   D15..D10 = X(Don't Care), D9 = RelDt, D8 = EDet, D7 = FQ, D6 = RelDt2,
+ *   D5..D1 = X, D0 = DNR。
+ * ⚠ 更正记录: 旧代码把 FQ 当 bit5(0x20)、EDet 当 bit3(0x08)、RelDt 当 bit6(0x40),
+ *   全部是错的 —— bit5 是未定义位(X)，读到的"满电"是随机值。0x5660 实测可验证:
+ *   bit9=1/bit6=1 表示长时间静置，bit7=0 表示未充满，与 SOC=3% 完全自洽。 */
+#define M_FSTAT_DNR (1u << 0)    /* 0x0001 Data Not Ready: 上电/换电池后未就绪 (710ms) */
+#define M_FSTAT_RELDT2 (1u << 6) /* 0x0040 RelDt2: 长静置 (48~96min 以上) */
+#define M_FSTAT_FQ (1u << 7)     /* 0x0080 Full Qualified: 充电终止条件全部满足 */
+#define M_FSTAT_EDET (1u << 8)   /* 0x0100 Empty Detection: 到达空电点, 回升到 VEmpty+VR 清除 */
+#define M_FSTAT_RELDT (1u << 9)  /* 0x0200 Relaxed Cell: 完全静置检出 */
+#define M_MISC_QUICK_START (1u << 10) /* 0x0400 MiscCfg.Quick Start: 触发基于OCV的重新学习 */
 typedef enum
 {
     M_OK = 0,
@@ -128,6 +139,9 @@ typedef struct
     uint32_t ichgterm_ma; /* 充电终止电流，mA */
     uint16_t empty_mv; /* 等效单体空电电压，mV，10mV步进 */
     uint16_t recovery_mv; /* 等效单体恢复电压，mV，40mV步进 */
+    /* 判满 VFSOC 阈值%: EZ无模型 LFP 取90 (80 在平台区会提前判满并污染容量学习);
+     * 0=EZ路径默认80, 特征化模型路径不写(由模型 optional 寄存器决定)。 */
+    uint8_t full_soc_thr_pct;
     uint8_t series_cells; /* 串联节数，本板8 */
     bool external_ntc; /* true外部NTC；false芯片内部温度 */
     bool ntc_100k; /* 外部NTC阻值选择，false为10kΩ */
@@ -155,6 +169,7 @@ typedef struct
     float avg_current_ma; /* 平均电流，mA */
     float temp_c; /* 温度，℃；由配置决定温度源 */
     float soc_pct; /* 报告SOC，% */
+    float vfsoc_pct; /* 满电判据用SOC，%；FQ判满看VFSOC而非RepSOC */
     float remaining_mah; /* 报告剩余容量，mAh */
     float full_mah; /* 报告满容量，mAh */
     float nominal_full_mah; /* 标称满容量，mAh */
@@ -162,11 +177,14 @@ typedef struct
     float cycles; /* 等效完整循环次数，保留小数 */
     float tte_s; /* 预计放空时间，秒，仅tte_valid时有效 */
     float ttf_s; /* 预计充满时间，秒，仅ttf_valid时有效 */
+    uint16_t fstat_raw; /* FStat(3Dh)原始值, 供诊断 */
     bool valid;
     bool characterized;
     bool tte_valid;
     bool ttf_valid;
-    bool full_qualified; /* FStat.FQ: 芯片判定已充满(实时状态, 转放电会清零) */
+    bool full_qualified; /* FStat.FQ(bit7,0x0080): 充电终止条件全部满足(实时位) */
+    bool empty_detected; /* FStat.EDet(bit8,0x0100): 芯片空电检出 */
+    bool relaxed; /* FStat.RelDt(bit9,0x0200): 完全静置检出, 不是满电标志 */
 } max17263_sample_t;
 typedef struct
 {
@@ -175,6 +193,7 @@ typedef struct
     uint16_t design_raw;
     uint16_t term_raw;
     uint16_t empty_raw;
+    uint16_t fullsocthr_raw; /* 0 表示不写/不校验 FullSOCThr (特征化模型路径) */
     uint16_t last_hibcfg;
     uint8_t failed_reg; /* 最近一次记录的访问错误地址；非所有错误都会更新 */
     int last_error; /* 最近一次记录的底层错误码 */
@@ -217,6 +236,16 @@ extern int drv_max17263_read(max17263_t *dev, uint8_t reg, uint16_t *value);
  * @note    写失败不盲目重试，避免已经生效的命令被重复执行。
 ********************************************************************/
 extern int drv_max17263_write(max17263_t *dev, uint8_t reg, uint16_t value);
+
+/*********************************************************************
+ * @fn      drv_max17263_quick_start
+ * @brief   触发 Quick Start, 让芯片基于当前OCV重新估计初始SOC。
+ * @param   dev  已绑定且已初始化的驱动实例
+ * @return  M_OK成功；M_EARG未初始化；M_ETIMEOUT等待清零超时；其他为通信错误。
+ * @note    RepSOC(06h)/RepCap(05h) 是结果只读寄存器, 不能强写; 换电池/深放后
+ *          需要重估 SOC 时用本函数 (MiscCfg 2Bh bit10=0x0400, 自清零, 轮询等待)。
+********************************************************************/
+extern int drv_max17263_quick_start(max17263_t *dev);
 
 /*********************************************************************
  * @fn      drv_max17263_initialize

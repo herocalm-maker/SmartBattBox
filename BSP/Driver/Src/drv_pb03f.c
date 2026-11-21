@@ -59,6 +59,14 @@ static const ble_urc_item_t s_urc_table[URC_TABLE_MAX] = {
  * URC 回调实现
  *====================================================================*/
 
+/**
+ * @fn      pb03f_urc_connected
+ * @brief   URC: 蓝牙已连接, 自动切换透传模式
+ * @param   info  模块实例指针
+ * @param   data  行数据指针 (未使用)
+ * @param   len   行数据长度 (未使用)
+ * @return  int 1=已匹配消耗该行
+ */
 /* 蓝牙已连接: 自动切换透传模式 */
 static int pb03f_urc_connected(ble_info_t *info, uint8_t *data, uint16_t len)
 {
@@ -68,6 +76,14 @@ static int pb03f_urc_connected(ble_info_t *info, uint8_t *data, uint16_t len)
     return 1;
 }
 
+/**
+ * @fn      pb03f_urc_disconnected
+ * @brief   URC: 蓝牙已断开, 回到 AT 模式
+ * @param   info  模块实例指针
+ * @param   data  行数据指针 (未使用)
+ * @param   len   行数据长度 (未使用)
+ * @return  int 1=已匹配消耗该行
+ */
 /* 蓝牙已断开: 回到 AT 模式 */
 static int pb03f_urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len)
 {
@@ -77,6 +93,15 @@ static int pb03f_urc_disconnected(ble_info_t *info, uint8_t *data, uint16_t len)
     return 1;
 }
 
+/**
+ * @fn      pb03f_urc_recv_data
+ * @brief   URC: 透传数据到达, 解析 "+DATA=<len>,<data>" 存入接收缓冲
+ * @param   info  模块实例指针 (未使用)
+ * @param   data  行数据指针
+ * @param   len   行数据长度
+ * @return  int 1=解析成功, 0=格式非法
+ * @note    解析成功后置 rx_ready 并释放 rx_sem 通知消费端.
+ */
 /* 透传数据到达: +DATA=<len>,<data> */
 static int pb03f_urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len)
 {
@@ -98,6 +123,7 @@ static int pb03f_urc_recv_data(ble_info_t *info, uint8_t *data, uint16_t len)
     p++;
 
     /* 拷贝数据 */
+    /* 越界保护: 声明长度超过缓冲容量或剩余字节时截断 */
     if (data_len > BLE_RX_BUF_SIZE)
     {
         data_len = BLE_RX_BUF_SIZE;

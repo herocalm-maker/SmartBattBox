@@ -18,6 +18,7 @@
 
 /* App layer */
 #include "app_sensor_task.h"
+#include "app_main_task.h" /* 充电/判满状态诊断查询 */
 
 /* Module 层 */
 #include "mod_battery.h"
@@ -49,14 +50,33 @@ static void sensor_tim_process(void)
         log_cnt = 0;
         BATT_INFO_T snapshot;
         BATT_INFO_T *bat = battery_get_snapshot(&snapshot) ? &snapshot : NULL;
-        if (bat)
+        if (bat && bat->valid)
         {
-            int16_t t_abs = bat->temp_deg < 0 ? -bat->temp_deg : bat->temp_deg;
             logger_out(LOG_INFO,
-                         "[BAT] SOC:%u%% %lumV %ldmA Cap:%lu/%lu DieT:%s%d.%dC SOHcap:%u%%",
-                         bat->soc, (unsigned long)bat->voltage_mv, (long)bat->current_ma,
-                         (unsigned long)bat->repcap_mah, (unsigned long)bat->fullcap_mah,
-                         bat->temp_deg < 0 ? "-" : "", t_abs / 10, t_abs % 10, bat->soh);
+                       "[BAT] soc: %u%%, soh: %u%%, vol: %lumV, cur: %ldmA, avgcur: %ldmA",
+                       bat->soc, bat->soh, (unsigned long)bat->voltage_mv, (long)bat->current_ma,
+                       (long)bat->avg_current_ma);
+            logger_out(LOG_INFO,
+                       "[BAT] ttf: %u min, tte: %u min, cycles: %u",
+                       bat->ttf_valid ? bat->time_to_full_min : 0,
+                       bat->tte_valid ? bat->time_to_empty_min : 0,
+                       bat->cycles_raw);
+            logger_out(LOG_INFO,
+                       "[BAT] repcap: %lumAh, fullcap: %lumAh, temp: %d.%dC, vfsoc: %u%%",
+                       (unsigned long)bat->repcap_mah, (unsigned long)bat->fullcap_mah,
+                       bat->temp_deg / 10, bat->temp_deg % 10, (unsigned)bat->vfsoc);
+            /* 充电/判满状态:
+             *   mode  工作模式 (IDLE/CHARGE_BYPASS/INVERT/SHUTDOWN)
+             *   chg   充电状态机 (IDLE/STARTING/RUNNING/STOPPING)
+             *   need  补电请求; blk 判满停充后的冷却剩余秒
+             *   full  fq=芯片FStat.FQ(bit7); latch/app=判满停充锁存; fstat 原始位
+             *   avgcur 参与判满 B 路径(涓流)与 TTF/充放电方向判定 */
+            logger_out(LOG_INFO,
+                       "[BAT] mode: %s, chg: %s, need: %u, blk: %lus, full: fq=%u latch=%u app=%u, fstat: 0x%04X",
+                       work_mode_name(), charge_state_name(), (unsigned)charge_need_active(),
+                       (unsigned long)charge_restart_block_left_s(),
+                       (unsigned)bat->full_qualified, (unsigned)charge_full_active(),
+                       (unsigned)battery_full_active(), (unsigned)bat->fstat_raw);
         }
         else
         {
@@ -66,6 +86,12 @@ static void sensor_tim_process(void)
                 snapshot.last_error, drv_max17263_error_string(snapshot.last_error),
                 (unsigned long)snapshot.active_faults, (unsigned long)snapshot.latched_faults,
                 (unsigned long)snapshot.timestamp_ms);
+            /* 数据无效时也给出充电/判满状态, 便于判断"没充电"是数据问题还是策略问题 */
+            logger_out(LOG_WARN,
+                       "[BAT] mode: %s, chg: %s, need: %u, blk: %lus, full: latch=%u (battery data invalid)",
+                       work_mode_name(), charge_state_name(), (unsigned)charge_need_active(),
+                       (unsigned long)charge_restart_block_left_s(),
+                       (unsigned)charge_full_active());
         }
         const TEMP_INFO_T *t = mod_temp_get();
         if (t)

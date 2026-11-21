@@ -143,6 +143,7 @@ void drv_encoder_scan(void)
  ********************************************************************/
 int8_t drv_encoder_read(void)
 {
+    /* 读清一体: 消费者独占读取, 防止增量长期累积溢出 int8 */
     int8_t delta = s_delta;
     s_delta = 0;
     return delta;

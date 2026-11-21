@@ -207,15 +207,16 @@ static bool hlw8110_writeReg(hlw8110_t *inst, uint8_t regaddr, const uint8_t *wr
         return false;
     }
     cmd[0] = HLW8110_PREAMBLE;
+    /* 地址 bit7=1 表示写寄存器 (读命令该位为 0), 校验和覆盖地址+数据, 不含方式位 */
     cmd[1] = regaddr | HLW8110_REG_W_BIT;
     for (i = 0; i < writelen; i++)
         cmd[2 + i] = writebuff[i];
     cmd[2 + writelen] = hlw8110_checksum_clac(cmd, 2 + writelen);
 
     hlw8110_special_cmd(inst, HLW8110_CMD_WR_EN);
-    bsp_delay_ms(2);
+    bsp_delay_ms(2);   /* 等待芯片置位写使能后再发写帧 */
     ok = (hlw8110_send(inst, cmd, (2 + writelen + 1U)) > 0);
-    bsp_delay_ms(2);
+    bsp_delay_ms(2);   /* 确保写帧已被完整接收后再关闭写使能 */
     hlw8110_special_cmd(inst, HLW8110_CMD_WR_DIS);
     return ok;
 }
@@ -464,6 +465,7 @@ bool drv_hlw8110_load_otp(hlw8110_t *inst)
     inst->otp.checksum_reg = reg_checksum;
 
     /* 原厂OTP校验和计算 */
+    /* 以 0xFFFF 为基值累加 8 项系数后按位取反, 与芯片 0x6F 寄存器自检值比对 */
     uint32_t sum = 0xFFFFU;
     sum += inst->otp.rms_iac;
     sum += inst->otp.rms_ibc;
@@ -599,6 +601,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
 
     /* ========= 有功功率，原厂正负功率处理 + K1·K2 ========= */
     float p_val;
+    /* power_pa > 0x80000000 表示负功率 (注入/回馈), 原厂按位取反求幅值 */
     if (raw.power_pa > 0x80000000U)
     {
         p_val = (float)(~raw.power_pa);
@@ -614,6 +617,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
     /* ========= 功率因数，原厂逻辑：小功率PF置0 ========= */
     uint32_t pf_raw = raw.power_factor;
     float pf;
+    /* 24bit 补码: >=0x800000 为负 PF, 取 2^24 补码后除以满量程 0x800000 */
     if (pf_raw >= 0x800000U)
     {
         pf = -1.0f * ((0xFFFFFFU + 1U) - pf_raw)/(float)0x800000U;
@@ -636,6 +640,7 @@ bool drv_hlw8110_measure(hlw8110_t *inst, hlw8110_measure_t *out)
     out->energy_kwh = e_val;
 
     /* ========= 频率 ========= */
+    /* 3579545Hz 为原厂例程基准时钟, ufreq 是对其 8 分频的周期计数值 */
     if (raw.u_freq != 0U)
     {
         out->freq_hz = 3579545.0f / ( 8.0f * (float)raw.u_freq );

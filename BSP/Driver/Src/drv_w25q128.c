@@ -130,6 +130,7 @@ uint32_t drv_w25q128_read_id(void)
     uint32_t id = 0;
     w25q128_cs_low();
     w25q128_spi_xchg(W25_CMD_READ_ID);
+    /* 发 0x00 仅为产生 SPI 时钟; 3 字节大端依次为 制造商|类型|容量 */
     id  = ((uint32_t)w25q128_spi_xchg(0x00)) << 16;
     id |= ((uint32_t)w25q128_spi_xchg(0x00)) << 8;
     id |=  (uint32_t)w25q128_spi_xchg(0x00);
@@ -164,6 +165,7 @@ bool drv_w25q128_wait_busy(uint32_t timeout_ms)
         {
             return false;
         }
+        /* 状态寄存器 bit0 = BUSY: 擦除/编程进行中为 1, 完成后自动清零 */
         if ((sts & 0x01) == 0)
         {
             return true;
@@ -187,6 +189,7 @@ bool drv_w25q128_read(uint32_t addr, uint8_t *buf, uint32_t len)
     {
         return false;
     }
+    /* 0x03 读命令后跟 24 位地址 (MSB 在前), 地址期间 CS 须保持拉低, 之后数据连续输出 */
     w25q128_cs_low();
     w25q128_spi_xchg(W25_CMD_READ);
     w25q128_spi_xchg((addr >> 16) & 0xFF);
@@ -214,6 +217,7 @@ bool drv_w25q128_erase_sector(uint32_t sec_idx)
         return false;
     }
     uint32_t addr = sec_idx * W25Q128_SECTOR_SIZE;
+    /* 擦除属写操作, 须先置 WEL 锁存; 擦除命令执行后 WEL 自动清零 */
     w25q128_send_cmd(W25_CMD_WRITE_ENABLE);
     w25q128_cs_low();
     w25q128_spi_xchg(W25_CMD_SECTOR_ERASE);
@@ -253,6 +257,7 @@ bool drv_w25q128_write(uint32_t addr, const uint8_t *buf, uint32_t len)
             chunk = remaining;
         }
 
+        /* WEL 在上一次页编程完成后已自动清零, 故每次编程前都要重新写使能 */
         w25q128_send_cmd(W25_CMD_WRITE_ENABLE);
         w25q128_cs_low();
         w25q128_spi_xchg(W25_CMD_PAGE_PROGRAM);

@@ -58,6 +58,15 @@ static volatile bool s_Uart_TX_Ready[BSP_UART_MAX]= {0};
 /* =====================================================================
  *  HAL MSP 回调 (由 HAL 内部调用)
  * ===================================================================== */
+/**
+ * @fn      HAL_UART_MspInit
+ * @brief   UART 底层初始化 (HAL 回调): 按 Instance 分支配置 5 路串口的 GPIO 复用/DMA 流/NVIC
+ * @param   uartHandle  UART 句柄 (由 HAL_UART_Init 内部传入, Instance 已由 bsp_uart_init 设置)
+ * @return  无
+ * @note    RX DMA 均为 NORMAL 单次模式, 依赖 USART IDLE 中断收帧后重启 (见各 USARTx_IRQHandler);
+ *          UART4(串口屏)/USART6(蓝牙) 中断优先级 6, 低于 USART1/2/3 的 5,
+ *          保证日志与电表通信优先于慢速外设.
+ */
 void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 {
 
@@ -423,6 +432,13 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 }
 
 
+/**
+ * @fn      HAL_UART_MspDeInit
+ * @brief   UART 底层反初始化 (HAL 回调): 先停 DMA 再关外设时钟, 释放 GPIO/DMA/NVIC
+ * @param   uartHandle  UART 句柄
+ * @return  无
+ * @note    必须先 DMAStop 再关时钟, 否则 DMA 可能继续搬运导致总线错误.
+ */
 void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 {
 
@@ -554,6 +570,14 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 }
 
 
+/**
+ * @fn      HAL_UART_TxCpltCallback
+ * @brief   DMA 发送完成回调: 置位对应端口的 TX 就绪标志, 允许下一次发送
+ * @param   huart  完成发送的 UART 句柄
+ * @return  无
+ * @note    与 bsp_uart_send 构成简易发送忙判定: 发起 DMA 前清标志, 完成后置位.
+ *          回调在 ISR 上下文执行, 仅做原子布尔写, 不加锁.
+ */
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
 
@@ -584,6 +608,12 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 }
 
 
+/**
+ * @fn      HAL_UART_RxCpltCallback
+ * @brief   DMA 接收满回调 (本工程为空实现)
+ * @param   huart  UART 句柄
+ * @return  无
+ */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   /* 本模块使用 IDLE+DMA 接收, RxCplt 仅在 DMA 缓冲区满时触发.
@@ -751,6 +781,7 @@ void USART1_IRQHandler(void)
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */
 
+  /* HAL_UART_IRQHandler 不处理 IDLE; 借总线空闲判定一帧接收完毕, 实现不定长取帧 */
   tmp_flag =__HAL_UART_GET_FLAG(&huart1,UART_FLAG_IDLE);
   if(tmp_flag!= RESET)
   {
@@ -759,6 +790,7 @@ void USART1_IRQHandler(void)
     temp = huart1.Instance->SR;  //清除串口空闲中断标志位
     temp = huart1.Instance->DR;
     HAL_UART_DMAStop(&huart1); 
+    /* 上一步 DMAStop 已冻结 NDTR: 实际接收字节数 = 缓冲区大小 - DMA 剩余计数 */
     temp = UartCfg->rx_buf_size - hdma_usart1_rx.Instance->NDTR;
     if((temp > 0) && (UartCfg->rx_cb != NULL))
     {
@@ -767,6 +799,7 @@ void USART1_IRQHandler(void)
       UartCfg->rx_cb(BSP_UART_1, UartCfg->rx_buf, (uint16_t)temp);
     }
     memset(UartCfg->rx_buf, 0, UartCfg->rx_buf_size);
+    /* NORMAL 模式 DMA 传满即停, 必须重新武装以等待下一帧 */
     HAL_UART_Receive_DMA(&huart1, UartCfg->rx_buf, UartCfg->rx_buf_size);
   }
   /* USER CODE END USART1_IRQn 1 */
@@ -786,6 +819,7 @@ void USART2_IRQHandler(void)
   HAL_UART_IRQHandler(&huart2);
   /* USER CODE BEGIN USART2_IRQn 1 */
 
+  /* HAL_UART_IRQHandler 不处理 IDLE; 借总线空闲判定一帧接收完毕, 实现不定长取帧 */
   tmp_flag =__HAL_UART_GET_FLAG(&huart2,UART_FLAG_IDLE);
   if(tmp_flag!= RESET)
   {
@@ -794,6 +828,7 @@ void USART2_IRQHandler(void)
     temp = huart2.Instance->SR;  //清除串口空闲中断标志位
     temp = huart2.Instance->DR;
     HAL_UART_DMAStop(&huart2); 
+    /* 上一步 DMAStop 已冻结 NDTR: 实际接收字节数 = 缓冲区大小 - DMA 剩余计数 */
     temp = UartCfg->rx_buf_size - hdma_usart2_rx.Instance->NDTR;
     if((temp > 0) && (UartCfg->rx_cb != NULL))
     {
@@ -802,6 +837,7 @@ void USART2_IRQHandler(void)
       UartCfg->rx_cb(BSP_UART_2, UartCfg->rx_buf, (uint16_t)temp);
     }
     memset(UartCfg->rx_buf, 0, UartCfg->rx_buf_size);
+    /* NORMAL 模式 DMA 传满即停, 必须重新武装以等待下一帧 */
     HAL_UART_Receive_DMA(&huart2, UartCfg->rx_buf, UartCfg->rx_buf_size);
   }
   /* USER CODE END USART2_IRQn 1 */
@@ -820,6 +856,7 @@ void USART3_IRQHandler(void)
   HAL_UART_IRQHandler(&huart3);
   /* USER CODE BEGIN USART3_IRQn 1 */
 
+  /* HAL_UART_IRQHandler 不处理 IDLE; 借总线空闲判定一帧接收完毕, 实现不定长取帧 */
   tmp_flag =__HAL_UART_GET_FLAG(&huart3,UART_FLAG_IDLE);
   if(tmp_flag!= RESET)
   {
@@ -828,6 +865,7 @@ void USART3_IRQHandler(void)
     temp = huart3.Instance->SR;  //清除串口空闲中断标志位
     temp = huart3.Instance->DR;
     HAL_UART_DMAStop(&huart3); 
+    /* 上一步 DMAStop 已冻结 NDTR: 实际接收字节数 = 缓冲区大小 - DMA 剩余计数 */
     temp = UartCfg->rx_buf_size - hdma_usart3_rx.Instance->NDTR;
     if((temp > 0) && (UartCfg->rx_cb != NULL))
     {
@@ -836,6 +874,7 @@ void USART3_IRQHandler(void)
       UartCfg->rx_cb(BSP_UART_3, UartCfg->rx_buf, (uint16_t)temp);
     }
     memset(UartCfg->rx_buf, 0, UartCfg->rx_buf_size);
+    /* NORMAL 模式 DMA 传满即停, 必须重新武装以等待下一帧 */
     HAL_UART_Receive_DMA(&huart3, UartCfg->rx_buf, UartCfg->rx_buf_size);
   }
   /* USER CODE END USART3_IRQn 1 */
@@ -854,6 +893,7 @@ void UART4_IRQHandler(void)
   /* USER CODE END UART4_IRQn 0 */
   HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
+  /* HAL_UART_IRQHandler 不处理 IDLE; 借总线空闲判定一帧接收完毕, 实现不定长取帧 */
   tmp_flag =__HAL_UART_GET_FLAG(&huart4,UART_FLAG_IDLE);
   if(tmp_flag!= RESET)
   {
@@ -862,6 +902,7 @@ void UART4_IRQHandler(void)
     temp = huart4.Instance->SR;  //清除串口空闲中断标志位
     temp = huart4.Instance->DR;
     HAL_UART_DMAStop(&huart4); 
+    /* 上一步 DMAStop 已冻结 NDTR: 实际接收字节数 = 缓冲区大小 - DMA 剩余计数 */
     temp = UartCfg->rx_buf_size - hdma_uart4_rx.Instance->NDTR;
     if((temp > 0) && (UartCfg->rx_cb != NULL))
     {
@@ -870,6 +911,7 @@ void UART4_IRQHandler(void)
       UartCfg->rx_cb(BSP_UART_4, UartCfg->rx_buf, (uint16_t)temp);
     }
     memset(UartCfg->rx_buf, 0, UartCfg->rx_buf_size);
+    /* NORMAL 模式 DMA 传满即停, 必须重新武装以等待下一帧 */
     HAL_UART_Receive_DMA(&huart4, UartCfg->rx_buf, UartCfg->rx_buf_size);
   }
   /* USER CODE END UART4_IRQn 1 */
@@ -888,6 +930,7 @@ void USART6_IRQHandler(void)
   /* USER CODE END USART6_IRQn 0 */
   HAL_UART_IRQHandler(&huart6);
   /* USER CODE BEGIN USART6_IRQn 1 */
+  /* HAL_UART_IRQHandler 不处理 IDLE; 借总线空闲判定一帧接收完毕, 实现不定长取帧 */
   tmp_flag =__HAL_UART_GET_FLAG(&huart6,UART_FLAG_IDLE);
   if(tmp_flag!= RESET)
   {
@@ -896,6 +939,7 @@ void USART6_IRQHandler(void)
     temp = huart6.Instance->SR;  //清除串口空闲中断标志位
     temp = huart6.Instance->DR;
     HAL_UART_DMAStop(&huart6); 
+    /* 上一步 DMAStop 已冻结 NDTR: 实际接收字节数 = 缓冲区大小 - DMA 剩余计数 */
     temp = UartCfg->rx_buf_size - hdma_usart6_rx.Instance->NDTR;
     if((temp > 0) && (UartCfg->rx_cb != NULL))
     {
@@ -904,6 +948,7 @@ void USART6_IRQHandler(void)
       UartCfg->rx_cb(BSP_UART_6, UartCfg->rx_buf, (uint16_t)temp);
     }
     memset(UartCfg->rx_buf, 0, UartCfg->rx_buf_size);
+    /* NORMAL 模式 DMA 传满即停, 必须重新武装以等待下一帧 */
     HAL_UART_Receive_DMA(&huart6, UartCfg->rx_buf, UartCfg->rx_buf_size);
   }
   /* USER CODE END USART6_IRQn 1 */
@@ -923,16 +968,13 @@ bool bsp_uart_init(bsp_uart_port_t port, const bsp_uart_config_t *cfg)
 
     if((port >= BSP_UART_MAX)||
        (cfg == NULL)||
-       (cfg->baudrate == 0)||
-       (cfg->rx_buf == NULL)|| 
-       (cfg->rx_buf_size == 0)||
-       (cfg->rx_cb == NULL))
+       (cfg->baudrate == 0))
     {
       return false;
     }
 
     s_huartCfg_List[port].baudrate    = cfg->baudrate;
-    s_huartCfg_List[port].rx_cb       = cfg->rx_cb;
+    s_huartCfg_List[port].rx_cb       = cfg->rx_cb;       /* 可为 NULL (TX-only) */
     s_huartCfg_List[port].rx_buf      = cfg->rx_buf;
     s_huartCfg_List[port].rx_buf_size = cfg->rx_buf_size;
     s_Uart_TX_Ready[port] = true;  /* 初始状态: TX 空闲, 可发送 */
@@ -991,10 +1033,13 @@ bool bsp_uart_init(bsp_uart_port_t port, const bsp_uart_config_t *cfg)
       return false;
     }
 
-    __HAL_UART_CLEAR_IDLEFLAG(huart);
-    //__HAL_UART_ENABLE_IT(huart, UART_IT_RXNE);
-    __HAL_UART_ENABLE_IT(huart, UART_IT_IDLE);
-    HAL_UART_Receive_DMA(huart, cfg->rx_buf, cfg->rx_buf_size);
+    __HAL_UART_CLEAR_IDLEFLAG(huart);  /* 清除初始化前残留的 IDLE 标志, 防止使能中断后立即误入一次空帧 */
+    /* IDLE 中断: 仅在 RX 启用时开启 (TX-only 场景跳过) */
+    if (cfg->rx_cb != NULL && cfg->rx_buf != NULL && cfg->rx_buf_size > 0)
+    {
+      __HAL_UART_ENABLE_IT(huart, UART_IT_IDLE);
+      HAL_UART_Receive_DMA(huart, cfg->rx_buf, cfg->rx_buf_size);
+    }
     
     return true;
 }
@@ -1041,6 +1086,7 @@ bool bsp_uart_send(bsp_uart_port_t port, const uint8_t *data, uint16_t len, uint
     return false;
   }
 
+  /* 等待上一次 DMA 发送完成 (TxCplt 回调置位就绪标志); 最多忙等 3×20ms, 超时后仍强制发送 */
   while(count < 3)
   {
 	  count++;
@@ -1055,9 +1101,32 @@ bool bsp_uart_send(bsp_uart_port_t port, const uint8_t *data, uint16_t len, uint
   huart = s_huart_List[port];
   if(HAL_UART_Transmit_DMA(huart, (uint8_t *)data, len) != HAL_OK)
   {
+    s_Uart_TX_Ready[port] = true;  /* 恢复就绪标志, 避免死锁 */
     return false;
   }
-  HAL_Delay(40);
+
+  /* 等本次 DMA 发送真正完成 (TxCplt 回调置位) 再返回:
+   * 调用方的缓冲区常在栈上, 必须活到发送结束。
+   * 这里用 TxCplt 标志精确等待 (10 字节 @115200 ≈ 1ms), 替代固定
+   * HAL_Delay(40) —— 后者让每个显示帧固定阻塞 40ms, 一次整屏刷新
+   * (约 20 帧) 拖到 800ms, 显示任务完全跟不上 100ms 节拍。
+   * 等待上限用调用方给的 timeout_ms, 防止 DMA 异常时死等。 */
+  {
+    uint32_t to = (timeout_ms != 0u) ? timeout_ms : 30u;
+    uint32_t t0 = HAL_GetTick();
+    uint32_t guard = 0;
+    while (s_Uart_TX_Ready[port] == false)
+    {
+      if ((uint32_t)(HAL_GetTick() - t0) >= to)
+      {
+        break;
+      }
+      if (++guard > 200000u)
+      {
+        break;   /* 兜底: SysTick 未前进(如 ISR 上下文)时不至于死等 */
+      }
+    }
+  }
 
   return true;
 }

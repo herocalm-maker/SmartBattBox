@@ -75,9 +75,12 @@ static void metering_tim_process(void)
 
             logger_out(
                 LOG_INFO,
-                "[METER] VIN:%d.%dV %d.%02dA %d.%dW %d.%dHz | VOUT:%d.%dV %d.%02dA %d.%dW %d.%dHz | AC:%d",
+                "[METER] sta=%u,VIN:%d.%dV %d.%02dA %d.%dW %d.%dHz | sta=%u,VOUT:%d.%dV %d.%02dA %d.%dW %d.%dHz | AC:%d",
+                m->in_ok,
                 vin_v_i, vin_v_d, vin_i_i, vin_i_d, vin_p_i, vin_p_d,
-                vin_f_i, vin_f_d, vout_v_i, vout_v_d, vout_i_i, vout_i_d,
+                vin_f_i, vin_f_d,
+                m->out_ok,
+                vout_v_i, vout_v_d, vout_i_i, vout_i_d,
                 vout_p_i, vout_p_d, vout_f_i, vout_f_d, m->ac_in_present);
         }
     }

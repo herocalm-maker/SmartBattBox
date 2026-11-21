@@ -59,6 +59,7 @@ static int setup(battery_app_t *a)
     max17263_learned_t learned;
     const max17263_learned_t *p = NULL;
     int r;
+    bool is_new_battery = false;
     /* 先查匹配记录；真正是否恢复由驱动根据POR决定，MCU复位不覆盖芯片当前学习值。 */
     if (a->store.read)
     {
@@ -74,10 +75,31 @@ static int setup(battery_app_t *a)
             a->active_faults |= BAT_FAULT_NVM;
         }
     }
+    is_new_battery = (p == NULL);  /* 无学习记录 = 新电池/首次初始化 */
     r = drv_max17263_initialize(&a->gauge, p);
     if (r)
     {
         return r;
+    }
+    /* 新电池或 SOC 过低: 触发 Quick Start 让芯片基于当前 OCV 重新估计初始 SOC。
+     * RepSOC/RepCap 是只读结果寄存器不能强写; 新电池 POR 后芯片本就会做 OCV
+     * 启动, 此处再补一次 Quick Start 覆盖深放/BMS 断开重接场景。 */
+    if (is_new_battery)
+    {
+        uint16_t repsoc_raw;
+        uint8_t current_soc_pct = 100; /* 默认 100: 读不到时不做 Quick Start */
+        if (drv_max17263_read(&a->gauge, M_REPSOC, &repsoc_raw) == M_OK)
+        {
+            current_soc_pct = (uint8_t)(repsoc_raw >> 8); /* RepSOC: 1/256% 分辨率 */
+        }
+        if (current_soc_pct < 5)
+        {
+            r = drv_max17263_quick_start(&a->gauge);
+            if (r)
+            {
+                return r;
+            }
+        }
     }
     r = drv_max17263_alerts(&a->gauge, a->policy.min_cell_mv, a->policy.max_cell_mv, a->policy.min_temp_c,
                             a->policy.max_temp_c, a->policy.low_soc, -a->policy.max_discharge_ma,
@@ -105,6 +127,8 @@ int battery_app_start(battery_app_t *a, const max17263_bus_t *b, const max17263_
                       const battery_policy_t *p, const battery_store_t *store)
 {
     int r;
+    /* 参数整定一次性校验: 采样周期/有效期范围、阈值顺序、20mV 对齐 (芯片电压告警步进)、
+     * 电流阈值与 rsense 组合可被硬件告警精确表示 (不静默取整) 及 LED 配置合法性 */
     if (!a || !p || !c || p->period_ms < 100 || p->period_ms > 60000 || p->stale_ms < p->period_ms ||
         p->stale_ms > 600000 || p->min_cell_mv >= p->max_cell_mv || p->max_charge_ma <= 0 ||
         p->max_discharge_ma <= 0 || p->max_cell_mv > 5100 || p->min_cell_mv % 20 || p->max_cell_mv % 20 ||
@@ -293,6 +317,7 @@ void battery_app_process(battery_app_t *a)
     limit(a, BAT_FAULT_OC_CHG, s->current_ma > a->policy.max_charge_ma,
           s->current_ma < 0.9f * a->policy.max_charge_ma);
     limit(a, BAT_FAULT_LOW_SOC, s->soc_pct<a->policy.low_soc, s->soc_pct> a->policy.low_soc + 2);
+    /* 循环计数寄存器为 16 位, 接近饱和 (65000/65535) 说明芯片已长期使用, 给出维护提示 */
     limit(a, BAT_WARN_CYCLE_RANGE, s->cycles_raw >= 65000, s->cycles_raw < 65000);
     /* Keep observed_alerts for short threshold events even if the live value recovered. */
     r = drv_max17263_ack_alerts(&a->gauge, (uint16_t)(s->status & M_ALERT_FLAGS));
@@ -657,6 +682,7 @@ int battery_store_save(const battery_store_t *s, const max17263_t *d, const max1
     {
         return rc;
     }
+    /* 追加起点 = 最新完整记录所在扇区; 空存储从扇区 0 开始 */
     base = x.found ? (x.offset / s->sector_size) * s->sector_size : 0;
     for (off = base; off < base + s->sector_size; off += 64)
     {
@@ -723,14 +749,30 @@ int battery_store_save(const battery_store_t *s, const max17263_t *d, const max1
 #include "FreeRTOS.h"
 #include "task.h"
 #include "comm_logger.h"
-static battery_app_t gauge_app;
-static BATT_INFO_T published;
-static bool module_started;
-static uint32_t save_request;
-static uint32_t save_done;
-static int save_result;
-static bool led_pending;
-static int32_t led_request;
+
+/**
+ * @brief 电池模块状态结构体: 统一管理电量计、发布数据、保存/LED 状态
+ */
+typedef struct
+{
+    battery_app_t gauge_app;
+    BATT_INFO_T published;
+
+    struct {
+        uint8_t module_started : 1;
+        uint8_t led_pending : 1;
+    } flags;
+
+    struct {
+        uint32_t request;
+        uint32_t done;
+        int result;
+    } save;
+
+    int32_t led_request;
+} battery_module_state_t;
+
+static battery_module_state_t s_bat = {0};
 /*********************************************************************
  * @fn      bus_read
  * @brief   将核心7位地址转换为HAL约定地址并读取寄存器。
@@ -841,15 +883,104 @@ static uint32_t fold_alarm(uint32_t faults, uint32_t consecutive)
     uint32_t out = 0;
     if (faults & BAT_FAULT_OV)                                out |= SYS_ALARM_BAT_OVP;
     if (faults & BAT_FAULT_UV)                                out |= SYS_ALARM_BAT_UVP;
-    if (faults & BAT_FAULT_HOT)                               out |= SYS_ALARM_BAT_OTP;
+    /* die 温度(HOT/COLD)不折叠为电池过温保护位: 内部温度是芯片封装温度, 不代表
+     * 电芯温度; 电芯过温保护以 mod_temp 独立传感器为准 (thermal_protect)。
+     * gauge 温度故障仍保留在 active_faults/latched_faults 快照中供诊断。 */
     if (faults & (BAT_FAULT_OC_DIS | BAT_FAULT_OC_CHG))       out |= SYS_ALARM_BAT_OCP;
-    if (faults & BAT_FAULT_LOW_SOC)                           out |= SYS_ALARM_LOW_SOC;
     if (faults & (BAT_FAULT_NVM | BAT_FAULT_PROFILE | BAT_FAULT_RESET | BAT_FAULT_STALE)) out |= SYS_ALARM_STORAGE;
     if ((faults & BAT_FAULT_IO) && consecutive >= BAT_COMM_ERR_THRESHOLD)
                                                               out |= SYS_ALARM_BAT_COMM;
     if (faults & BAT_FAULT_SENSOR)                            out |= SYS_ALARM_BAT_INVALID;
     return out;
 }
+
+/*--------------------------------------------------------------------
+ * 剩余时间显示滤波: 10 样本中值 (仅显示用; 无加权二级)
+ *--------------------------------------------------------------------*/
+#define BAT_MED_WIN       10u    /* 中值窗口 (3s 采样节奏 → ~30s 历史) */
+#define BAT_TIME_EMA_A    0.35f  /* 中值后加权滤波系数 (新样本权重) */
+
+typedef struct {
+    float   buf[BAT_MED_WIN];   /* 样本环形数组 */
+    uint8_t idx;                /* 下一个写入位置 */
+    uint8_t count;              /* 已填充样本数 (爬窗期) */
+} bat_med_t;
+
+/*********************************************************************
+ * @fn      bat_med_update
+ * @brief   送入一个新样本 (秒值), 返回当前窗口中值.
+ * @note    填窗期按实际样本数取中值: 首采即原值直通; 窗满后新样本
+ *          替换最老样本. 前置条件: 会话开始时滤波器已清零.
+********************************************************************/
+static float bat_med_update(bat_med_t *f, float x)
+{
+    float tmp[BAT_MED_WIN];
+    uint8_t i, j;
+
+    f->buf[f->idx] = x;
+    f->idx = (uint8_t)((f->idx + 1u) % BAT_MED_WIN);
+    if (f->count < BAT_MED_WIN)
+        f->count++;
+
+    /* 复制有效样本 (填窗期 buf[0..count-1] 连续有效) 后插入排序 */
+    memcpy(tmp, f->buf, (uint32_t)f->count * sizeof(float));
+    for (i = 1; i < f->count; i++)
+    {
+        float key = tmp[i];
+        for (j = i; j > 0 && tmp[j - 1] > key; j--)
+            tmp[j] = tmp[j - 1];
+        tmp[j] = key;
+    }
+    if ((f->count & 1u) != 0u)
+    {
+        return tmp[f->count / 2u];
+    }
+    return (tmp[f->count / 2u - 1u] + tmp[f->count / 2u]) * 0.5f;
+}
+
+/*********************************************************************
+ * @fn      bat_med_reset
+ * @brief   清零中值滤波器状态 (数据失效/停止充放电时调用, 防残留旧值).
+********************************************************************/
+static void bat_med_reset(bat_med_t *f)
+{
+    memset(f, 0, sizeof(*f));
+}
+
+/*********************************************************************
+ * @fn      bat_ema_update / bat_ema_reset
+ * @brief   中值后一级加权滤波: y = y + A·(x - y), A = BAT_TIME_EMA_A.
+ * @note    复位后首个样本直通 (y = x), 与中值首采直通衔接, 显示即同步;
+ *          滤除中值输出仍有的小幅抖动, 真实负载缓变正常跟随。
+********************************************************************/
+static float bat_ema_update(float *state, bool *valid, float x)
+{
+    if (!*valid)
+    {
+        *state = x;
+        *valid = true;
+    }
+    else
+    {
+        *state += BAT_TIME_EMA_A * (x - *state);
+    }
+    return *state;
+}
+
+static void bat_ema_reset(float *state, bool *valid)
+{
+    *state = 0.0f;
+    *valid = false;
+}
+
+static bat_med_t s_tte_med;   /* 放电剩余时间滤波器 (秒) */
+static bat_med_t s_ttf_med;   /* 充电剩余时间滤波器 (秒) */
+static float s_tte_ema_s;     /* 中值后加权滤波状态 (秒) */
+static float s_ttf_ema_s;
+static bool s_tte_ema_valid;  /* 加权滤波已初始化 (复位后首样直通) */
+static bool s_ttf_ema_valid;
+static bool s_was_discharging; /* 上一采样放电方向 (会话边界检测) */
+static bool s_was_charging;    /* 上一采样充电方向 (会话边界检测) */
 
 /*********************************************************************
  * @fn      publish
@@ -877,24 +1008,86 @@ static void publish(void *c, const battery_app_t *a)
         const max17263_sample_t *s = &a->sample;
         x.voltage_mv = (uint32_t)rounded(s->pack_mv);
         x.cell_voltage_mv = (uint32_t)rounded(s->cell_mv);
+        x.avg_cell_voltage_mv = (uint32_t)rounded(s->avg_cell_mv);
         x.current_ma = rounded(s->current_ma);
         x.avg_current_ma = rounded(s->avg_current_ma);
         x.temp_deg = (int16_t)rounded(s->temp_c * 10);
         x.soc = (uint8_t)(s->soc_pct >= 100 ? 100 : rounded(s->soc_pct));
+        x.vfsoc = (uint8_t)(s->vfsoc_pct >= 100 ? 100 : rounded(s->vfsoc_pct));
+        x.fstat_raw = s->fstat_raw;
         x.soh = (uint8_t)(s->soh_capacity_pct >= 100 ? 100 : rounded(s->soh_capacity_pct));
         x.soh_valid = true;
         x.repcap_mah = (uint32_t)rounded(s->remaining_mah);
         x.fullcap_mah = (uint32_t)rounded(s->full_mah);
         x.cycles_raw = s->cycles_raw;
-        x.tte_valid = s->tte_valid;
-        x.ttf_valid = s->ttf_valid;
-        x.time_to_empty_min = s->tte_valid ? (uint16_t)rounded(s->tte_s / 60) : 0;
-        x.time_to_full_min = s->ttf_valid ? (uint16_t)rounded(s->ttf_s / 60) : 0;
+        /* TTE/TTF: 统一自算 剩余容量(或待充容量)/平均电流, 不再读芯片 TTE/TTF
+         * 寄存器 (该寄存器内部就是同一比值, 自算可避开瞬时电流门控抖动与
+         * 0xFFFF 特殊值)。方向以平均电流判定 (±50mA 死区): 瞬时电流过零毛刺
+         * 不再使有效标志翻转、不再清滤波器导致跳变。方向翻转 = 新充/放会话,
+         * 两级滤波器同步复位实现首采直通; 会话内每拍都自算, 两级连续平滑:
+         * 10 样本中值 (30s 窗, 滤突发毛刺) → 0.35 加权 (滤小幅抖动),
+         * 仅显示用, 保护仍用原值。 */
+        bool discharging = (s->avg_current_ma < -50);
+        bool charging = (s->avg_current_ma > 50);
+        if (discharging && !s_was_discharging)
+        {
+            bat_med_reset(&s_tte_med);  /* 新放电会话: 两级清零, 首采直通 */
+            bat_ema_reset(&s_tte_ema_s, &s_tte_ema_valid);
+        }
+        if (charging && !s_was_charging)
+        {
+            bat_med_reset(&s_ttf_med);  /* 新充电会话: 两级清零, 首采直通 */
+            bat_ema_reset(&s_ttf_ema_s, &s_ttf_ema_valid);
+        }
+        s_was_discharging = discharging;
+        s_was_charging = charging;
+
+        if (discharging)
+        {
+            float hours = s->remaining_mah / (float)(-s->avg_current_ma);
+            float med_s = bat_med_update(&s_tte_med, hours * 3600.0f);
+            x.tte_valid = true;
+            x.time_to_empty_min = (uint16_t)rounded(bat_ema_update(&s_tte_ema_s, &s_tte_ema_valid, med_s) / 60.0f);
+        }
+        else
+        {
+            x.tte_valid = false;
+            x.time_to_empty_min = 0;
+            bat_med_reset(&s_tte_med);
+            bat_ema_reset(&s_tte_ema_s, &s_tte_ema_valid);
+        }
+        if (charging)
+        {
+            float need_mah = s->full_mah - s->remaining_mah;
+            if (need_mah < 0.0f)
+            {
+                need_mah = 0.0f;
+            }
+            float hours = need_mah / s->avg_current_ma;
+            float med_s = bat_med_update(&s_ttf_med, hours * 3600.0f);
+            x.ttf_valid = true;
+            x.time_to_full_min = (uint16_t)rounded(bat_ema_update(&s_ttf_ema_s, &s_ttf_ema_valid, med_s) / 60.0f);
+        }
+        else
+        {
+            x.ttf_valid = false;
+            x.time_to_full_min = 0;
+            bat_med_reset(&s_ttf_med);
+            bat_ema_reset(&s_ttf_ema_s, &s_ttf_ema_valid);
+        }
         x.full_qualified = s->full_qualified;
+    }
+    else
+    {
+        /* 快照无效: 剩余时间两级滤波器同步清零, 恢复后首采直通, 不混入陈旧窗口 */
+        bat_med_reset(&s_tte_med);
+        bat_ema_reset(&s_tte_ema_s, &s_tte_ema_valid);
+        bat_med_reset(&s_ttf_med);
+        bat_ema_reset(&s_ttf_ema_s, &s_ttf_ema_valid);
     }
     /* 复制期间短暂禁止抢占，读者不会拿到一半新、一半旧的字段。 */
     taskENTER_CRITICAL();
-    published = x;
+    s_bat.published = x;
     taskEXIT_CRITICAL();
 }
 
@@ -906,7 +1099,7 @@ static void publish(void *c, const battery_app_t *a)
 ********************************************************************/
 bool mod_battery_init(void)
 {
-    if (module_started)
+    if (s_bat.flags.module_started)
     {
         return true;
     }
@@ -914,15 +1107,15 @@ bool mod_battery_init(void)
     max17263_bus_t bus = {NULL, bus_read, bus_write, bus_delay, bus_time};
     battery_store_t store = {NULL, 4096, mod_storage_battery_read, mod_storage_battery_erase,
                              mod_storage_battery_program};
-    int r = battery_app_start(&gauge_app, &bus, &battery_cfg, &battery_policy, &store);
+    int r = battery_app_start(&s_bat.gauge_app, &bus, &battery_cfg, &battery_policy, &store);
     if (r)
     {
         return false;
     }
-    gauge_app.on_update = publish;
-    gauge_app.recover_bus = recover_i2c;
-    module_started = true;
-    logger_out(LOG_WARN, "BAT: 8S 1mOhm internal DIE temp; 20Ah/1A parameters require pack confirmation");
+    s_bat.gauge_app.on_update = publish;
+    s_bat.gauge_app.recover_bus = recover_i2c;
+    s_bat.flags.module_started = true;
+    logger_out(LOG_WARN, "BAT: 8S 1mOhm internal DIE temp; 20Ah/IChgTerm 200mA, CV 29.2V/3650mV cell, EZ uncharacterized");
     return true;
 }
 /* Read-only fault diagnostics: SensorTask owns bus; never reset/reconfigure to hide a fault.
@@ -940,30 +1133,30 @@ static void battery_diagnose(void)
     static uint32_t last_log;
     static int last_error;
     uint32_t t = HAL_GetTick();
-    if (gauge_app.sample.valid)
+    if (s_bat.gauge_app.sample.valid)
     {
         if (!was_valid)
         {
-            logger_out(LOG_INFO, "BAT: gauge data valid, initialized=%u", gauge_app.ready);
+            logger_out(LOG_INFO, "BAT: gauge data valid, initialized=%u", s_bat.gauge_app.ready);
         }
         was_valid = true;
         return;
     }
     /* 相同错误最多每10秒输出一次；首次错误或状态变化立即输出。 */
-    if (reported && !was_valid && last_error == gauge_app.last_error && (uint32_t)(t - last_log) < 10000u)
+    if (reported && !was_valid && last_error == s_bat.gauge_app.last_error && (uint32_t)(t - last_log) < 10000u)
     {
         return;
     }
     reported = true;
     was_valid = false;
     last_log = t;
-    last_error = gauge_app.last_error;
+    last_error = s_bat.gauge_app.last_error;
     logger_out(LOG_WARN, "BAT FAIL: err=%d(%s) init=%u io_fail_reg=0x%02X faults=0x%08lX count=%u",
-                 gauge_app.last_error, drv_max17263_error_string(gauge_app.last_error), gauge_app.ready,
-                 gauge_app.gauge.failed_reg, (unsigned long)gauge_app.active_faults,
-                 gauge_app.consecutive_errors);
+                 s_bat.gauge_app.last_error, drv_max17263_error_string(s_bat.gauge_app.last_error), s_bat.gauge_app.ready,
+                 s_bat.gauge_app.gauge.failed_reg, (unsigned long)s_bat.gauge_app.active_faults,
+                 s_bat.gauge_app.consecutive_errors);
     /* 诊断读失败只能影响副本，不能覆盖导致本轮采样失败的原始寄存器地址。 */
-    max17263_t probe = gauge_app.gauge;
+    max17263_t probe = s_bat.gauge_app.gauge;
     const uint8_t regs[] = {M_DEVNAME,  M_STATUS,     M_FSTAT,      M_MODELCFG, M_CONFIG,  M_DESIGNCAP,
                             M_ICHGTERM, M_VEMPTY,     M_HIBCFG,     M_VCELL,    M_CURRENT, M_TEMP,
                             M_REPSOC,   M_FULLCAPREP, M_FULLCAPNOM, M_LEDCFG1,  M_LEDCFG2, M_LEDCFG3};
@@ -987,7 +1180,7 @@ static void battery_diagnose(void)
     logger_out(LOG_WARN, "BAT RAW: VCell=%04X Current=%04X Temp=%04X SOC=%04X FullRep=%04X FullNom=%04X",
                  v[9], v[10], v[11], v[12], v[13], v[14]);
     logger_out(LOG_WARN, "BAT LED: Cfg1=%04X Cfg2=%04X Cfg3=%04X", v[15], v[16], v[17]);
-    if (gauge_app.last_error == M_EPROFILE && !(v[1] & M_POR))
+    if (s_bat.gauge_app.last_error == M_EPROFILE && !(v[1] & M_POR))
     {
         logger_out(LOG_WARN, "BAT: warm-start profile mismatch; fully power-cycle MAX17263 after firmware "
                                "update (MCU reset is insufficient)");
@@ -1005,36 +1198,36 @@ void mod_battery_handler(void)
     uint32_t req;
     bool led;
     int32_t mask;
-    if (!module_started && !mod_battery_init())
+    if (!s_bat.flags.module_started && !mod_battery_init())
     {
         return;
     }
-    battery_app_process(&gauge_app);
+    battery_app_process(&s_bat.gauge_app);
     battery_diagnose();
     /* 只在临界区取出邮箱内容，所有慢速I2C/Flash操作都在临界区外执行。 */
     taskENTER_CRITICAL();
-    req = save_request;
-    led = led_pending;
-    mask = led_request;
-    led_pending = false;
+    req = s_bat.save.request;
+    led = s_bat.flags.led_pending;
+    mask = s_bat.led_request;
+    s_bat.flags.led_pending = false;
     taskEXIT_CRITICAL();
     if (led)
     {
-        int r = mask < 0 ? battery_app_led_soc(&gauge_app) : battery_app_led_mask(&gauge_app, (uint16_t)mask);
-        gauge_app.last_error = r;
-        publish(NULL, &gauge_app);
+        int r = mask < 0 ? battery_app_led_soc(&s_bat.gauge_app) : battery_app_led_mask(&s_bat.gauge_app, (uint16_t)mask);
+        s_bat.gauge_app.last_error = r;
+        publish(NULL, &s_bat.gauge_app);
     }
     /* 请求序号用于配对完成结果；60秒内已有记录时合并重复关机保存请求。 */
-    if (req != save_done)
+    if (req != s_bat.save.done)
     {
-        int r = (uint32_t)(HAL_GetTick() - gauge_app.last_save) < 60000u && gauge_app.have_saved
+        int r = (uint32_t)(HAL_GetTick() - s_bat.gauge_app.last_save) < 60000u && s_bat.gauge_app.have_saved
                     ? M_OK
-                    : battery_app_checkpoint(&gauge_app);
+                    : battery_app_checkpoint(&s_bat.gauge_app);
         taskENTER_CRITICAL();
-        save_result = r;
-        save_done = req;
+        s_bat.save.result = r;
+        s_bat.save.done = req;
         taskEXIT_CRITICAL();
-        publish(NULL, &gauge_app);
+        publish(NULL, &s_bat.gauge_app);
     }
 }
 
@@ -1053,7 +1246,7 @@ bool battery_get_snapshot(BATT_INFO_T *out)
     }
     /* 返回独立副本，避免其他任务持有会被采样任务继续修改的内部结构指针。 */
     taskENTER_CRITICAL();
-    *out = published;
+    *out = s_bat.published;
     taskEXIT_CRITICAL();
     if (!out->valid || (uint32_t)(HAL_GetTick() - out->timestamp_ms) > BATTERY_STALE_MS)
     {
@@ -1079,8 +1272,8 @@ bool mod_battery_led_mask(uint16_t m)
         return false;
     }
     taskENTER_CRITICAL();
-    led_request = m;
-    led_pending = true;
+    s_bat.led_request = m;
+    s_bat.flags.led_pending = true;
     taskEXIT_CRITICAL();
     return true;
 }
@@ -1094,8 +1287,8 @@ bool mod_battery_led_mask(uint16_t m)
 void mod_battery_led_soc(void)
 {
     taskENTER_CRITICAL();
-    led_request = -1;
-    led_pending = true;
+    s_bat.led_request = -1;
+    s_bat.flags.led_pending = true;
     taskEXIT_CRITICAL();
 }
 
@@ -1110,21 +1303,21 @@ bool mod_battery_checkpoint(uint32_t timeout_ms)
 {
     uint32_t id, start = HAL_GetTick();
     taskENTER_CRITICAL();
-    if (save_request != save_done)
+    if (s_bat.save.request != s_bat.save.done)
     {
         taskEXIT_CRITICAL();
         return false;
     }
     /* 先发布请求再让出CPU，由SensorTask完成写入；调用任务只等待对应序号。 */
-    id = ++save_request;
+    id = ++s_bat.save.request;
     taskEXIT_CRITICAL();
     do
     {
         bool done;
         int r;
         taskENTER_CRITICAL();
-        done = save_done == id;
-        r = save_result;
+        done = s_bat.save.done == id;
+        r = s_bat.save.result;
         taskEXIT_CRITICAL();
         if (done)
         {

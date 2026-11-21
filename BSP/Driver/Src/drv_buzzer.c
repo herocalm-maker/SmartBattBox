@@ -34,16 +34,28 @@ void drv_buzzer_init(void)
 {
     bsp_gpio_init(BOARD_BUZZER_PORT, BOARD_BUZZER_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                   GPIO_PIN_RESET, GPIO_SPEED_FREQ_LOW);
+    /* 初值低电平 = 静音 (有源蜂鸣器高电平导通) */
     s_BeepData.SoundType = BEEP_SOUND_NONE;
     s_BeepData.ShortState = false;
     s_BeepData.ShortNumber = 0;
     s_BeepData.LongTimeMs = 0;
     s_tick_cnt = 0;
     BEEP_OFF();
+    /* 上电自检: 短鸣 1 次, 顺带验证 GPIO 输出路径与时基正常 */
     drv_buzzer_short_sound(1);
     logger_out(LOG_INFO, "drv_buzzer: init");
 }
 
+/**
+ * @fn      buzzer_short_pattern
+ * @brief   短鸣通用实现: 按 on/off tick 参数生成 count 次间歇鸣叫
+ * @param   count      鸣叫次数 (0 直接返回失败)
+ * @param   on_ticks   单次响阶段 tick 数
+ * @param   off_ticks  单次停阶段 tick 数
+ * @return  bool true=成功启动 false=count 为 0
+ * @note    关中断保护"参数+状态+首响"整体写入, 避免定时器中断
+ *          观察到半更新的模式参数.
+ */
 /* 短鸣通用模式: 按 on/off 时长生成 count 次间歇鸣叫 (关中断保护状态一致性) */
 static bool buzzer_short_pattern(uint8_t count, uint32_t on_ticks, uint32_t off_ticks)
 {

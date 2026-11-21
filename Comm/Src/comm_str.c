@@ -16,6 +16,7 @@ int16_t comm_str_find(const uint8_t *buf, uint16_t len, const char *sub)
 {
     uint16_t slen = (uint16_t)strlen(sub);
     if (slen == 0 || slen > len || buf == NULL || sub == NULL) return -1;
+    /* 数据为二进制帧 (可能含 NUL), 必须逐窗口 memcmp, 不能用 strstr */
     for (uint16_t i = 0; i + slen <= len; i++) {
         if (memcmp(&buf[i], sub, slen) == 0) {
             return (int16_t)i;
@@ -45,6 +46,7 @@ bool comm_str_extract(const uint8_t *buf, uint16_t len,const char *prefix, char 
 
     uint16_t start = (uint16_t)idx + (uint16_t)strlen(prefix);
     uint16_t end = start;
+    /* 值域终点: 行尾符 CR/LF 或缓冲区末尾, 两种行结束风格都兼容 */
     while (end < len && buf[end] != '\r' && buf[end] != '\n') {
         end++;
     }

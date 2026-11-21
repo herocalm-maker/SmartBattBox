@@ -42,6 +42,7 @@ extern "C" {
 #define DWIN_CMD_READ            0x83       /* 读 VP 寄存器 */
 #define DWIN_TX_MAX              128        /* 单帧最大发送长度 */
 #define DWIN_TIMEOUT_MS          50         /* 发送超时 */
+#define DWIN_READ_TIMEOUT_MS     50         /* 读 VP 等待应答超时 */
  
 /* DGUS VP 地址定义 */
 #define DWIN_VP_PAGE             0x0084     /* 页面切换 */
@@ -53,20 +54,23 @@ extern "C" {
 #define DWIN_RING_BUF_SIZE       512        /* 触摸/回传数据环形缓冲 */
 
 /*============================================================================
- * 页面 ID 枚举
+ * 页面号定义
+ *   DGUS 的页面号 = bmp 文件名前缀的数字 (0.bmp → 页 0, 1.bmp → 页 1)。
+ *   屏端上电默认显示页 0, 因此建议让"空白启动页"占用页 0:
+ *     0.bmp = 启动/空白页,  1.bmp = 主界面
+ *   若屏端实际是反的(0=主界面), 把下面两个值对调即可, 其它代码不用改。
  *============================================================================*/
 
-typedef enum {
-    DWIN_PAGE_BOOT  = 0,
-    DWIN_PAGE_MAX
-} dwin_page_enum;
+#define DWIN_PAGE_BOOT   0u   /* 启动/空白页 (上电默认显示, 遮住控件组态初值) */
+#define DWIN_PAGE_MAIN   1u   /* 主界面 (运行界面) */
+#define DWIN_PAGE_COUNT  2u   /* 工程页面总数 (仅用于越界保护) */
 
 /*============================================================================
  * 设备实例 (单屏, 驱动内部静态持有)
  *============================================================================*/
 typedef struct {
     bsp_uart_port_t     port;                          /* 绑定的 UART 端口 */
-    dwin_page_enum      cur_page;                      /* 当前页面 (软件跟踪) */
+    uint8_t             cur_page;                      /* 当前页面 (软件跟踪) */
     uint8_t             tx_buf[DWIN_TX_MAX];           /* 格式化文本暂存 */
     comm_ringbuf_t      rx_ring;                       /* 触摸/回传数据环形缓冲 */
     uint8_t             ring_storage[DWIN_RING_BUF_SIZE];
@@ -85,13 +89,18 @@ extern void drv_dwin_deinit(void);
 extern uint16_t drv_dwin_read(uint8_t *buf, uint16_t len);
 
 /* ---- 页面控制 ---- */
-extern void drv_dwin_set_page(dwin_page_enum page);
+extern void drv_dwin_set_page(uint8_t page);
 /* get page */
-extern dwin_page_enum drv_dwin_get_page(void);
+extern uint8_t drv_dwin_get_page(void);
 
 /* 文本显示 */
 /* ---- 文本显示 (vp_addr 为完整 VP 地址) ---- */
 extern void drv_dwin_set_text(uint16_t vp_addr, const char *text);
+/* 按"1 字符 = 1 word(2 字节)"写 ASCII 文本: 用于编码为 GBK 的文本控件,
+ * DGUS 这类控件每个字符占 1 个 word, 高字节为 0, 不足部分补空格。 */
+extern void drv_dwin_set_text_word(uint16_t vp_addr, const char *text, uint8_t chars);
+/* 同上, 但低字节在前 {code, 0x00} —— 仅用于文本格式探测 */
+extern void drv_dwin_set_text_word_le(uint16_t vp_addr, const char *text, uint8_t chars);
 /* set text format */
 extern void drv_dwin_set_text_format(uint16_t vp_addr, const char *fmt, ...);
 
@@ -106,6 +115,16 @@ extern void drv_dwin_set_brightness(uint8_t percent);
 
 /* ---- 原始写 VP 寄存器 ---- */
 extern void drv_dwin_write_vp(uint16_t vp_addr, const uint8_t *data, uint16_t len);
+
+/**
+ * @brief 读 VP 寄存器 (指令 83), 同步等待屏端应答。
+ * @param vp_addr 变量地址
+ * @param count   读取字数 1~16
+ * @param out     出参: count 个 16bit 值
+ * @return true=成功; false=超时/未初始化/帧格式错误
+ * @note  阻塞至多 DWIN_READ_TIMEOUT_MS, 仅供调试/自检, 不得用于周期刷新路径。
+ */
+extern bool drv_dwin_read_vp(uint16_t vp_addr, uint8_t count, uint16_t *out);
 
 /* 帧结束标记 */
 /* ---- 帧结束标记 (部分控件需要 FF FF FF 结束) ---- */

@@ -16,10 +16,13 @@ typedef struct
 {
     uint32_t voltage_mv; /* 整包电压，mV */
     uint32_t cell_voltage_mv; /* 等效平均单体电压，mV，不是逐节测量 */
+    uint32_t avg_cell_voltage_mv; /* 平均等效单体电压(AvgVCell)，mV，判满兜底用 */
     int32_t current_ma; /* 瞬时电流，mA；充电为正，放电为负 */
     int32_t avg_current_ma; /* 平均电流，mA */
     int16_t temp_deg; /* internal die temperature, 0.1C; not cell temperature */
-    uint8_t soc; /* 报告SOC，0～100% */
+    uint8_t soc; /* 报告SOC(RepSOC)，0～100% */
+    uint8_t vfsoc; /* 满电判据SOC(VFSOC)，0～100%；FQ判满看此值 */
+    uint16_t fstat_raw; /* FStat(3Dh)原始值: bit5=FQ, bit6=ReIDt, bit3=EDet */
     uint8_t soh; /* 容量型SOH，显示限制到0～100%，须检查soh_valid */
     uint8_t online; /* 与发布时的数据有效性同步，读取后仍须检查valid */
     uint32_t repcap_mah; /* 报告剩余容量，mAh */

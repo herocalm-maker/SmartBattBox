@@ -66,7 +66,7 @@ uint16_t comm_ringbuf_push(comm_ringbuf_t *rb, const uint8_t *data, uint16_t len
     for (uint16_t i = 0; i < len; i++)
     {
         rb->buf[tail] = data[i];
-        tail = (uint16_t)((tail + 1u) % rb->size);
+        tail = (uint16_t)((tail + 1u) % rb->size);  /* 写到缓冲末尾后取模回绕到 0 */
     }
     rb->tail = tail;     /* 单点更新, 消费者读到的 tail 始终一致 */
     return len;
@@ -94,7 +94,7 @@ uint16_t comm_ringbuf_pop(comm_ringbuf_t *rb, uint8_t *out, uint16_t len)
     {
         if (out)
           out[i] = rb->buf[head];
-        head = (uint16_t)((head + 1u) % rb->size);
+        head = (uint16_t)((head + 1u) % rb->size);  /* 读到缓冲末尾后取模回绕到 0 */
     }
     rb->head = head;
     return len;
@@ -139,6 +139,7 @@ uint16_t comm_ringbuf_size(const comm_ringbuf_t *rb)
       return 0;
     uint16_t tail = rb->tail;
     uint16_t head = rb->head;
+    /* +size 修正无符号减法下溢: tail 已回绕到 head 之前时结果仍正确 */
     return (uint16_t)((tail - head + rb->size) % rb->size);
 }
 
@@ -150,8 +151,9 @@ uint16_t comm_ringbuf_size(const comm_ringbuf_t *rb)
  ********************************************************************/
 uint16_t comm_ringbuf_free(const comm_ringbuf_t *rb)
 {
-    if (rb == NULL) 
+    if (rb == NULL)
       return 0;
+    /* 容量预留 1 字节 (size-1) 区分满/空两种 head==tail 语义 */
     return (uint16_t)(rb->size - 1u - comm_ringbuf_size(rb));
 }
 
@@ -176,8 +178,9 @@ bool comm_ringbuf_is_empty(const comm_ringbuf_t *rb)
  ********************************************************************/
 bool comm_ringbuf_is_full(const comm_ringbuf_t *rb)
 {
-    if (rb == NULL) 
+    if (rb == NULL)
       return false;
+    /* 判满不能直接比较 head/tail (与空无法区分), 改看 tail 前进一步是否追上 head */
     uint16_t next_tail = (uint16_t)((rb->tail + 1u) % rb->size);
     return (next_tail == rb->head);
 }

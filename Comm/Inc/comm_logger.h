@@ -41,6 +41,15 @@ extern void logger_init(uint32_t baudrate);
 extern void logger_out(log_level_enum lv, const char *fmt, ...);
 
 /*====================================================================
+ * UART1 RX API (接收命令/数据, 供 app_main_task 解析)
+ *====================================================================*/
+
+/* 从 UART1 RX 缓冲读取数据 (非阻塞, 返回实际读取字节数) */
+extern uint16_t logger_rx_read(uint8_t *buf, uint16_t len);
+/* 查询 UART1 RX 缓冲当前数据字节数 */
+extern uint16_t logger_rx_available(void);
+
+/*====================================================================
  * 便捷宏 (小写, 避免与枚举 LOG_INFO 等冲突)
  *
  *   log_info("voltage: %dV", v);

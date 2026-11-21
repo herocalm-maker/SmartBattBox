@@ -136,6 +136,8 @@ bool drv_relay_is_on(relay_id_enum id)
  * are managed by AppMainTask; GPIO state is not contact feedback. */
 void drv_relay_all_off(void)
 {
+    /* 紧急断电顺序: 先断逆变输出/AC 输出侧, 再断输入侧 (CHG_IN 最后),
+     * 避免负载侧能量反灌 */
     bsp_gpio_write(BOARD_INV_OUT_PORT, BOARD_INV_OUT_PIN, GPIO_PIN_RESET);
     bsp_gpio_write(BOARD_AC_CTRL_PORT, BOARD_AC_CTRL_PIN, GPIO_PIN_RESET);
     bsp_gpio_write(BOARD_CHG_OUT_PORT, BOARD_CHG_OUT_PIN, GPIO_PIN_RESET);
