@@ -97,6 +97,13 @@ typedef enum
 #define AC_IDLE_PWR_W                1.0f     /* 无负载判定阈值 W (输出功率 > 1W 视为接了负载) */
 #define IDLE_SHUTDOWN_MS             3600000u /* 整机: 无带载供电且未充电持续 1h 自动关机 */
 #define INV_MIN_SOC_PCT              1u      /* 逆变输出电量门限: SOC<1%(即0%) 不允许/自动关断, SOC>=1% 允许 */
+/* 逆变输出单体欠压保护 (2026-11-21 新增, 替代过低的 2.5V 门限):
+ *   软停: 单体 <= 2.80V → 自动关闭逆变输出 (3 声提示), 回升到 2.85V 允许再开
+ *   硬停: 单体 <= 2.70V → 立即关断并锁存, 必须回升到 2.85V 才解除
+ * 背景: 现场实测放电到整包 20.67V(2.58V/单体) 才靠 SOC=0 关断, LFP 已深度过放。 */
+#define INV_CELL_SOFT_MV             2800u   /* 软停门限: 单体 <= 2.80V 关输出 */
+#define INV_CELL_HARD_MV             2700u   /* 硬停门限: 单体 <= 2.70V 关断并锁存 */
+#define INV_CELL_RESUME_MV           2850u   /* 解除门限: 单体 >= 2.85V 才允许重新开启 */
 #define UI_CODE_HOLD_MS              10000u  /* 瞬时提示码 (ERRxx) 显示时长, ms */
 #define OVERLOAD_BEEP_PERIOD_MS      2000u   /* 过载声光报警周期 */
 #define OVERLOAD_BEEP_HALF_MS        1000u   /* 报警相位时长: 1.0s 亮/响 + 1.0s 静默 */
@@ -894,9 +901,23 @@ static void bypass_state_process(ac_input_state_t ac)
  *        关键: 市电侧与逆变侧继电器互斥, 由 relay_interlock_ok() 保证。
  */
 /**
- * @brief 逆变输出电量门限检查: 只有 SOC >= INV_MIN_SOC_PCT(1%) 才允许开启/维持逆变。
+ * @brief 取电池等效单体电压 (mV), 0 表示数据无效。
+ * @param bat 电池快照 (可为 NULL)
+ * @note  优先 cell_voltage_mv (等效平均单体), 回退到 AvgVCell。
+ */
+static uint32_t inv_cell_mv(const BATT_INFO_T *bat)
+{
+    if (bat == NULL)
+    {
+        return 0u;
+    }
+    return bat->cell_voltage_mv ? bat->cell_voltage_mv : bat->avg_cell_voltage_mv;
+}
+
+/**
+ * @brief 逆变输出门限检查: SOC >= 1% 且 单体未处于欠压软停区 才允许开启/维持逆变。
  * @param bat 输出: 本次读到的电池快照 (可为 NULL)
- * @return true: 允许逆变; false: 电量不足(0%)或数据无效。
+ * @return true: 允许逆变; false: 电量不足 / 单体欠压未恢复 / 数据无效。
  * @note  傍路输出不经此判定 (接 220V 时不受电量限制)。
  */
 static bool invert_soc_allow(BATT_INFO_T *bat)
@@ -905,12 +926,35 @@ static bool invert_soc_allow(BATT_INFO_T *bat)
     {
         return false; /* 数据无效: 不允许启动逆变, 由保护逻辑处理 */
     }
-    return (unsigned)bat->soc >= INV_MIN_SOC_PCT;
+    if ((unsigned)bat->soc < INV_MIN_SOC_PCT)
+    {
+        return false;
+    }
+    uint32_t cell = inv_cell_mv(bat);
+    if ((cell != 0u) && (cell < INV_CELL_RESUME_MV))
+    {
+        return false; /* 单体欠压: 未回升到解除门限前不允许启动 */
+    }
+    return true;
 }
 
 static void invert_state_process(ac_input_state_t ac)
 {
+    static bool s_uv_hard;   /* 单体欠压硬停锁存: 需回升到 INV_CELL_RESUME_MV 才解除 */
     uint32_t elapsed = HAL_GetTick() - s_state.invert_phase_since;
+
+    /* 硬停锁存解除: 单体回升到解除门限以上 */
+    if (s_uv_hard)
+    {
+        BATT_INFO_T r = {0};
+        uint32_t cell = battery_get_snapshot(&r) ? inv_cell_mv(&r) : 0u;
+        if ((cell != 0u) && (cell >= INV_CELL_RESUME_MV))
+        {
+            s_uv_hard = false;
+            logger_out(LOG_INFO, "INV: UV hard latch cleared (cell=%lumV >= %lumV)",
+                       (unsigned long)cell, (unsigned long)INV_CELL_RESUME_MV);
+        }
+    }
 
     switch (s_state.invert_state)
     {
@@ -923,10 +967,12 @@ static void invert_state_process(ac_input_state_t ac)
                 BATT_INFO_T bat = {0};
                 if (!invert_soc_allow(&bat))
                 {
+                    uint32_t cell = inv_cell_mv(&bat);
                     s_state.flags.ac_out_requested = false;
-                    logger_out(LOG_WARN, "INV start rejected: soc=%u%% < %u%% (or data invalid), beep 3",
-                               (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT);
-                    /* 低电量不刷 ERR 码 (按需求), 只用 3 声蜂鸣提示 */
+                    logger_out(LOG_WARN, "INV start rejected: soc=%u%% (<%u%%) cell=%lumV (<%lumV), beep 3",
+                               (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT,
+                               (unsigned long)cell, (unsigned long)INV_CELL_RESUME_MV);
+                    /* 低电量/欠压不刷 ERR 码 (按需求), 只用 3 声蜂鸣提示 */
                     drv_buzzer_short_sound(3);
                     display_publish();
                     break;
@@ -987,9 +1033,37 @@ static void invert_state_process(ac_input_state_t ac)
         case INVERT_STATE_RUNNING:
         {
             /* 稳定输出: 用户取消 / 空载60s / 过载5s / 通道失效 都会撤销 ac_out_requested。
-             * 新增: 电量 < INV_MIN_SOC_PCT(1%) 自动关闭逆变输出 (傍路输出不受此限制)。 */
+             * 保护 (按优先级):
+             *   单体 <= 2.70V → 硬停 (立即关断 + 锁存, 回升到 2.85V 才解除)
+             *   单体 <= 2.80V → 软停 (关输出, 可恢复; 重新开启需 >= 2.85V)
+             *   SOC  < 1%    → 关输出 (原低电量逻辑)
+             * 傍路输出不受此限制。 */
             BATT_INFO_T bat = {0};
-            if (battery_get_snapshot(&bat) && (unsigned)bat.soc < INV_MIN_SOC_PCT)
+            uint32_t cell = 0u;
+            bool snap_ok = battery_get_snapshot(&bat);
+            if (snap_ok)
+            {
+                cell = inv_cell_mv(&bat);
+            }
+
+            if (snap_ok && (cell != 0u) && (cell <= INV_CELL_HARD_MV))
+            {
+                s_uv_hard = true;
+                logger_out(LOG_ERROR, "INV: cell=%lumV <= %lumV (hard UV), output off & latched, beep 3",
+                           (unsigned long)cell, (unsigned long)INV_CELL_HARD_MV);
+                s_state.flags.ac_out_requested = false;
+                drv_buzzer_short_sound(3);
+                display_publish();
+            }
+            else if (snap_ok && (cell != 0u) && (cell <= INV_CELL_SOFT_MV))
+            {
+                logger_out(LOG_WARN, "INV: cell=%lumV <= %lumV (soft UV), output off, beep 3",
+                           (unsigned long)cell, (unsigned long)INV_CELL_SOFT_MV);
+                s_state.flags.ac_out_requested = false;
+                drv_buzzer_short_sound(3);
+                display_publish();
+            }
+            else if (snap_ok && (unsigned)bat.soc < INV_MIN_SOC_PCT)
             {
                 logger_out(LOG_WARN, "INV: soc=%u%% < %u%%, auto output off (low battery), beep 3",
                            (unsigned)bat.soc, (unsigned)INV_MIN_SOC_PCT);
