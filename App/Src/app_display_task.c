@@ -728,11 +728,14 @@ static void display_refresh(void)
     drv_dwin_set_text(VP_TEXT_ERR, txt);
 
     /* TextAlarm (0x2060, 8 字符) 三种内容, 优先级 LOWBAT > OVERLOAD > 空:
-     *   LOWBAT   : 电池欠压/低电量导致逆变停输出 (常亮, 不闪)
-     *   OVERLOAD : 过载告警 (>500W), 按 2.0s 周期闪动, 与蜂鸣器/报警灯同相
+     *   LOWBAT   : 电池欠压/低电量导致逆变停输出
+     *   OVERLOAD : 过载告警 (>500W)
+     * 两者都按 2.0s 周期闪动 (亮 1s / 灭 1s), 与蜂鸣器/报警灯同相。
      * TextError(0x2050,Y400) 与 TextAlarm(0x2060,Y440) 是两行独立控件, 互不影响。 */
-    bool overload_show = app_ui_overload_alarm() && app_ui_overload_phase();
-    const char *alarm_txt = app_ui_lowbat() ? "LOWBAT"
+    bool alert_phase   = app_ui_overload_phase();   /* 2.0s 周期: 前 1.0s 为显示相位 */
+    bool overload_show = app_ui_overload_alarm() && alert_phase;
+    bool lowbat_show   = app_ui_lowbat() && alert_phase;
+    const char *alarm_txt = lowbat_show ? "LOWBAT"
                           : (overload_show ? "OVERLOAD" : "");
     text_tx_log("ALARM", alarm_txt, VP_TEXT_ALARM_LEN, VP_TEXT_ALARM);
     drv_dwin_set_text(VP_TEXT_ALARM, alarm_txt);
