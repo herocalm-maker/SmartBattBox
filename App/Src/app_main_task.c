@@ -135,7 +135,9 @@ typedef enum
 #define CHARGE_FULL_V_MV             3600u    /* 物理兜底: 单体电压门槛 3600mV (=28.8V/8) */
 #define CHARGE_FULL_I_MA             500      /* 物理兜底: 库仑计平均电流门槛, mA */
 #define CHARGE_FULL_V_I_HOLD_MS      3600000u /* 物理兜底: 电压+TTF+电流三条件连续保持 1h */
-#define PHYS_BREAK_TOLERANCE_MS      10000u   /* 物理兜底: 条件短暂不满足的容错窗口 (避免 re-bulk 尖峰清零计时) */
+#define PHYS_BREAK_TOLERANCE_MS      120000u  /* 物理兜底: 条件短暂不满足的容错窗口
+                                              * (taper 段 avgI 在 500mA 附近抖动, 10s 不够,
+                                              *  实测 30s 一次 re-bulk 会把 1h 计时反复清零) */
 #define CHARGE_FULL_PHYS_REARM_SOC   95u      /* 物理兜底判满后, SOC 低于该值才允许再充 */
 #define CHARGE_RESTART_BLOCK_MS      600000u  /* 停充后 10min 冷却, 期间不重新启动充电 */
 
@@ -1345,8 +1347,21 @@ static void charge_strategy_update(ac_input_state_t ac)
     static uint32_t s_ac_back_ms;                        /* AC 掉电恢复时刻 (0=无), 用于补满豁免 */
     static bool s_v_low;                                 /* 电压迟滞状态: 已进入低位区 */
 
-    bool ac_recycle = (s_ac_prev == AC_INPUT_ABSENT && ac == AC_INPUT_PRESENT);
+    static bool s_ac_had_present;                         /* 曾经检测到 PRESENT (区分"回电"与冷启动) */
+
+    /* 来电判定: 只要上一拍不是 PRESENT、且曾经见过 PRESENT, 本次回到 PRESENT 就算"回电"。
+     * 不能写成 (s_ac_prev == ABSENT && ac == PRESENT): HLW8110 在 VIN=0 时会先报
+     * UNKNOWN(0) 再报 ABSENT(1), 实测两次插电都是 UNKNOWN -> PRESENT, 导致
+     * "来电补满"窗口从来不打开 (日志 acback 恒为 0)。
+     * s_ac_had_present 保证冷启动首次 PRESENT 不算回电。 */
+    bool ac_recycle = (ac == AC_INPUT_PRESENT) &&
+                      (s_ac_prev != AC_INPUT_PRESENT) &&
+                      s_ac_had_present;
     s_ac_prev = ac;
+    if (ac == AC_INPUT_PRESENT)
+    {
+        s_ac_had_present = true;
+    }
     if (ac_recycle)
     {
         s_ac_back_ms = HAL_GetTick();   /* 记录来电时刻, 开启补满窗口 */
