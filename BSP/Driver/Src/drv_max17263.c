@@ -253,8 +253,11 @@ int drv_max17263_bind(max17263_t *dev, const max17263_bus_t *bus, const max17263
     capacity_raw = ((uint64_t)config->design_mah * config->rsense_uohm + 2500) / 5000;
     term_raw = ((uint64_t)config->ichgterm_ma * config->rsense_uohm * 16 + 12500) / 25000;
     if (capacity_raw < 2 || capacity_raw > 65535 || term_raw < 1 || term_raw > 32767 ||
-        config->empty_mv < 2000 || config->empty_mv > 4000 || config->recovery_mv <= config->empty_mv ||
-        config->recovery_mv > 5080 || config->empty_mv % 10 || config->recovery_mv % 40 ||
+        config->empty_mv < 2000 || config->empty_mv > 4000 ||
+        /* recovery_mv 是相对 empty_mv 的"恢复增量"(芯片 VEmpty.VR)，不是绝对电压；
+         * 清除 EDet 的条件是 VCell > empty_mv + recovery_mv。 */
+        config->recovery_mv == 0 || config->recovery_mv > 5080 ||
+        config->empty_mv % 10 || config->recovery_mv % 40 ||
         (config->full_soc_thr_pct != 0 &&
          (config->full_soc_thr_pct < 50 || config->full_soc_thr_pct > 100)))
     {

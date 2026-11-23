@@ -137,8 +137,10 @@ typedef struct
     uint32_t rsense_uohm; /* 采样电阻，µΩ；本板1000 */
     uint32_t design_mah; /* 电池包设计容量，mAh，串联不乘节数 */
     uint32_t ichgterm_ma; /* 充电终止电流，mA */
-    uint16_t empty_mv; /* 等效单体空电电压，mV，10mV步进 */
-    uint16_t recovery_mv; /* 等效单体恢复电压，mV，40mV步进 */
+    uint16_t empty_mv; /* 等效单体空电电压，mV，10mV步进（VEmpty.VE） */
+    uint16_t recovery_mv; /* 相对空电点的恢复增量，mV，40mV步进（VEmpty.VR）
+                           * 芯片手册: 电压回升到 (empty_mv + recovery_mv) 才清除 EDet。
+                           * 例: empty=2800, recovery=480 -> 恢复到 3.28V 清除。 */
     /* 判满 VFSOC 阈值%: EZ无模型 LFP 取90 (80 在平台区会提前判满并污染容量学习);
      * 0=EZ路径默认80, 特征化模型路径不写(由模型 optional 寄存器决定)。 */
     uint8_t full_soc_thr_pct;

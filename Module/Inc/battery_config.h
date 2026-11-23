@@ -14,12 +14,14 @@
  * 下面两个值仅作诊断参考 (电压/电流门槛已直接写在 app_main_task.c 的常量里)。 */
 #define BATTERY_FULL_CELL_MV 3650u /* 诊断参考: 充电器 CV 对应的单体电压 (29.2V/8) */
 #define BATTERY_TAPER_MA 500       /* 诊断参考: taper 电流量级, mA */
-#define BATTERY_PROFILE_ID 7u /* FQ位/FullSOCThr/满电口径等配置变更后 bump, 强制POR重配 */
+#define BATTERY_PROFILE_ID 8u /* FQ位/FullSOCThr/满电口径等配置变更后 bump, 强制POR重配
+                               * v8 (2026-11-23): rsense 1000->1250, empty 2500->2800,
+                               *                  recovery 3000->480(增量) */
 #define BATTERY_PACK_ID 1u /* Change on physical pack replacement. */
 static const max17263_config_t battery_cfg={
  .profile_id=BATTERY_PROFILE_ID,.battery_id=BATTERY_PACK_ID,
- .rsense_uohm=1000,.design_mah=20000,.ichgterm_ma=200,
- .empty_mv=2500,.recovery_mv=3000,.full_soc_thr_pct=80,.series_cells=8,
+ .rsense_uohm=1250,.design_mah=20000,.ichgterm_ma=200,
+ .empty_mv=2800,.recovery_mv=480,.full_soc_thr_pct=80,.series_cells=8,
  .external_ntc=false,.ntc_100k=false,.allow_uncharacterized=true,
  .model=NULL,.poll_timeout_ms=3000
 };
