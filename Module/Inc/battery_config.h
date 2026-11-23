@@ -25,9 +25,16 @@ static const max17263_config_t battery_cfg={
  .external_ntc=false,.ntc_100k=false,.allow_uncharacterized=true,
  .model=NULL,.poll_timeout_ms=3000
 };
-static const battery_policy_t battery_policy={
+   /* 电流过流门限说明 (2026-11-23):
+    * MAX17263 的硬件电流告警(IALRT)一格 = 400000uA*uOhm / rsense:
+    *   rsense=1000 -> 400mA/格; rsense=1250 -> 320mA/格
+    * battery_app_start() 要求 max_*_ma * rsense 必须被 400000 整除,
+    * 且格数 <= 127(充)/128(放), 否则拒绝启动(返回 M_ERANGE)。
+    * rsense 改 1250 后: 充 9600mA = 30 格, 放 40960mA = 128 格 (原 10000/42000 无法整除)
+    * 两个值仍远高于实际工况 (充电 6.1A / 放电峰值约 30A), 保护不受影响。 */
+  static const battery_policy_t battery_policy={
  .min_cell_mv=2500,.max_cell_mv=3720,.min_temp_c=-20,.max_temp_c=60,
- .low_soc=10,.max_discharge_ma=42000,.max_charge_ma=10000,
+ .low_soc=10,.max_discharge_ma=40960,.max_charge_ma=9600,
  .period_ms=3000,.stale_ms=BATTERY_STALE_MS,
  .led_bars=12,.led_mode=3,.led_brightness=8,.led_mv=2000,
  .led_while_charging=false
