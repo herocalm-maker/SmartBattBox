@@ -282,3 +282,20 @@ void mod_key_poll_handler(void)
         s_key_callback(return_key);
     }
 }
+
+/*********************************************************************
+ * @fn      mod_key_is_down
+ * @brief   查询按键当前是否按下 (原始电平, 不去抖)。
+ * @param   idx KEY_IDX_*
+ * @return  true 按下 / false 松开或参数非法
+ * @note    关机流程使用: 长按关机会在"松手后"才上报, 但若用户在
+ *          极短时间内又按下, 断电瞬间按键仍会把电源自锁拉通,
+ *          表现为关机后 0.2~0.4s 又自动重启。
+ ********************************************************************/
+bool mod_key_is_down(uint8_t idx)
+{
+    if (idx >= KEY_IDX_CNT) {
+        return false;
+    }
+    return (bsp_gpio_read(s_pin_map[idx].port, s_pin_map[idx].pin) == 0);
+}

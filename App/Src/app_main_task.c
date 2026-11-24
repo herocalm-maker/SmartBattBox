@@ -1212,6 +1212,26 @@ static void system_shutdown(const char *reason)
     {
         logger_out(LOG_WARN, "BAT checkpoint failed");
     }
+    /* 断电前确认 ONOFF 键已松开:
+     * 电源自锁由"按键按下"或"PB4 保持"维持。若按键仍按住, PB4 一拉低电源掉,
+     * 按键立刻又把自锁拉通 -> 0.2~0.4s 后自动重启 (现场多次复现)。
+     * 最多等 2s 让用户松手; 超时也照常断电, 避免卡在无法关机的状态。 */
+    {
+        uint32_t t0 = HAL_GetTick();
+        while ((uint32_t)(HAL_GetTick() - t0) < 2000u)
+        {
+            if (!mod_key_is_down(KEY_IDX_ONOFF))
+            {
+                break;
+            }
+            osDelay(20);
+        }
+        if (mod_key_is_down(KEY_IDX_ONOFF))
+        {
+            logger_out(LOG_WARN, "shutdown: ONOFF still held after 2s, power off anyway");
+        }
+    }
+    logger_out(LOG_INFO, "shutdown: power off now");
     DEV_POWER_OFF();
 }
 
@@ -1422,6 +1442,15 @@ static void charge_strategy_update(ac_input_state_t ac)
                                         (ac_came_back ||
                                          ((unsigned)bat.soc <= CHARGE_RESTART_SOC && s_v_low)) &&
                                         !s_phys_full && !s_state.flags.bat_otp;
+            /* 充电进行中冻结请求: 充电时母线电压在 27.16/27.24 两条迟滞线之间来回穿,
+             * 会让 need_charge 每个来回翻转一次 (实测 18:21:22 need=0 → 18:21:25 need=1)。
+             * 虽然 need 只负责启动、不会打断充电, 但日志噪声大, 且若恰好此时停充+冷却到期
+             * 会漏启一次。RUNNING/STARTING 期间强制保持 true, 停充由 charge_stop_full 负责。 */
+            if ((s_state.charge_state == CHARGE_STATE_STARTING ||
+                 s_state.charge_state == CHARGE_STATE_RUNNING))
+            {
+                s_state.flags.need_charge = true;
+            }
             if (s_state.flags.need_charge != s_chg_log)
             {
                 s_chg_log = s_state.flags.need_charge;

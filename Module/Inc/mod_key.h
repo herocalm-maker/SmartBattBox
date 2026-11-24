@@ -64,6 +64,15 @@ extern bool mod_key_init(void);
 extern void mod_key_register_callback(mod_key_callback_t cb);
 extern void mod_key_poll_handler(void);
 
+/**
+ * @brief 查询某个按键当前是否处于按下状态 (原始电平, 不去抖)。
+ * @param idx KEY_IDX_ONOFF / KEY_IDX_ACIN / KEY_IDX_ACOUT / KEY_IDX_K1
+ * @return true: 按下 (低电平); false: 松开或参数非法。
+ * @note  供关机流程使用: 长按触发关机后需确认按键已松开再断电,
+ *        否则按键仍会把电源自锁重新拉通, 表现为"关机后立即重启"。
+ */
+extern bool mod_key_is_down(uint8_t idx);
+
 #ifdef __cplusplus
 }
 #endif
