@@ -1115,7 +1115,7 @@ bool mod_battery_init(void)
     s_bat.gauge_app.on_update = publish;
     s_bat.gauge_app.recover_bus = recover_i2c;
     s_bat.flags.module_started = true;
-    logger_out(LOG_WARN, "BAT: %uS Rsense=%lumOhm Design=%lumAh IChgTerm=%lumA; CV 29.2V/8, %s",
+    logger_out(LOG_WARN, "BAT: %uS Rsense=%luuOhm Design=%lumAh IChgTerm=%lumA; CV 29.2V/8, %s",
                (unsigned)battery_cfg.series_cells, (unsigned long)battery_cfg.rsense_uohm,
                (unsigned long)battery_cfg.design_mah, (unsigned long)battery_cfg.ichgterm_ma,
                battery_cfg.model ? "characterized" : "EZ uncharacterized");
