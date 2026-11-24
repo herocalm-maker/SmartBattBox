@@ -19,8 +19,12 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-SRC = os.path.join("Doc", "配置参数总览_20261122.md")
-OUT = os.path.join("Doc", "配置参数总览_20261122.docx")
+import sys
+
+# 用法: python build_param_overview_docx.py [src.md] [out.docx]
+# 不给参数时默认转换"配置参数总览"
+SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join("Doc", "配置参数总览_20261122.md")
+OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.splitext(SRC)[0] + ".docx"
 
 CN_BODY = "宋体"
 CN_HEAD = "微软雅黑"
@@ -117,7 +121,7 @@ def normalize(text):
     return text
 
 
-TOKEN_RE = re.compile(r"(\*\*.+?\*\*|`[^`]+`)")
+TOKEN_RE = re.compile(r"(\*\*.+?\*\*|\*[^*\n]+\*|`[^`]+`)")
 
 
 def add_inline(paragraph, text, size=10.5, color=None):
@@ -132,6 +136,10 @@ def add_inline(paragraph, text, size=10.5, color=None):
         elif part.startswith("`") and part.endswith("`"):
             run = paragraph.add_run(part[1:-1])
             set_run_font(run, MONO, size - 0.5, color=RGBColor(0xC0, 0x30, 0x30))
+        elif part.startswith("*") and part.endswith("*") and len(part) > 2:
+            run = paragraph.add_run(part[1:-1])
+            set_run_font(run, CN_BODY, size, color=color)
+            run.font.italic = True
         else:
             run = paragraph.add_run(part)
             set_run_font(run, CN_BODY, size, color=color)
@@ -213,7 +221,10 @@ def add_table(doc, rows, font_size=9.0):
             add_inline(p, data[i] if i < len(data) else "", font_size)
 
     set_cell_margins(table)
-    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+    sp = doc.add_paragraph()
+    sp.paragraph_format.space_before = Pt(0)
+    sp.paragraph_format.space_after = Pt(0)
+    sp.paragraph_format.line_spacing = Pt(4)
 
 
 def split_row(line):
@@ -248,6 +259,7 @@ def main():
 
     i = 0
     n = len(lines)
+    title_done = False
     while i < n:
         raw = lines[i]
         line = raw.rstrip()
@@ -285,7 +297,8 @@ def main():
         if m:
             level = len(m.group(1))
             text = m.group(2)
-            if level == 1 and "配置参数总览" in text:
+            if level == 1 and not title_done:
+                title_done = True
                 h = doc.add_heading(level=0)
                 run = h.add_run(text)
                 set_run_font(run, CN_HEAD, 22, bold=True,
@@ -308,7 +321,11 @@ def main():
             i += 1
             continue
         if re.match(r"^\d+\.\s+", stripped):
-            add_bullet(doc, re.sub(r"^(\d+)\.\s+", r"\1. ", stripped))
+            p_num = doc.add_paragraph()
+            p_num.paragraph_format.left_indent = Cm(0.75)
+            p_num.paragraph_format.first_line_indent = Cm(-0.45)
+            p_num.paragraph_format.space_after = Pt(2)
+            add_inline(p_num, re.sub(r"^(\d+)\.\s+", r"\1. ", stripped))
             i += 1
             continue
 
